@@ -5,7 +5,7 @@ disable-model-invocation: true
 allowed-tools: Bash(bun:*)
 ---
 
-!`bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" result "$ARGUMENTS"`
+!`bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.ts" result "$ARGUMENTS"`
 
 Present the full command output to the user. Do not summarize or condense it. Preserve all details including:
 - Job ID and status

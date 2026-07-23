@@ -47,7 +47,7 @@ Argument handling:
 Foreground flow:
 - Run:
 ```bash
-bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "$ARGUMENTS"
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.ts" adversarial-review "$ARGUMENTS"
 ```
 - Return the command stdout verbatim, exactly as-is.
 - Do not paraphrase, summarize, or add commentary before or after it.
@@ -57,7 +57,7 @@ Background flow:
 - Launch the review with `Bash` in the background:
 ```typescript
 Bash({
-  command: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "$ARGUMENTS"`,
+  command: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.ts" adversarial-review "$ARGUMENTS"`,
   description: "Codex adversarial review",
   run_in_background: true
 })

@@ -7,7 +7,7 @@ allowed-tools: Bash(bun:*), AskUserQuestion
 Run:
 
 ```bash
-bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" setup --json $ARGUMENTS
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.ts" setup --json $ARGUMENTS
 ```
 
 If the result says Codex is unavailable and Bun is available:
@@ -25,7 +25,7 @@ bun add --global @openai/codex
 - Then rerun:
 
 ```bash
-bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" setup --json $ARGUMENTS
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.ts" setup --json $ARGUMENTS
 ```
 
 If Codex is already installed or Bun is unavailable:

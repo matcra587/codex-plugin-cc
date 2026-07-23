@@ -5,4 +5,4 @@ disable-model-invocation: true
 allowed-tools: Bash(bun:*)
 ---
 
-!`bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" cancel "$ARGUMENTS"`
+!`bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.ts" cancel "$ARGUMENTS"`

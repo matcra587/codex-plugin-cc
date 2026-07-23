@@ -10,3 +10,9 @@ declare module "bun:ffi" {
   export const dlopen: any;
   export const ptr: any;
 }
+
+declare module "bun:test" {
+  export const afterEach: any;
+  export const expect: any;
+  export const test: any;
+}

@@ -5,7 +5,7 @@ disable-model-invocation: true
 allowed-tools: Bash(bun:*)
 ---
 
-!`bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" status "$ARGUMENTS"`
+!`bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.ts" status "$ARGUMENTS"`
 
 If the user did not pass a job ID:
 - Render the command output as a single Markdown table for the current and past runs in this session.

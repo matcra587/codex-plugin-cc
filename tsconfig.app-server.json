@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
+    "module": "Preserve",
     "moduleResolution": "Bundler",
-    "allowJs": true,
-    "checkJs": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
     "noEmit": true,
     "strict": true,
     "noImplicitAny": false,
@@ -12,10 +12,9 @@
     "types": []
   },
   "include": [
-    "plugins/codex/scripts/lib/app-server.mjs",
-    "plugins/codex/scripts/lib/codex.mjs",
-    "plugins/codex/scripts/lib/fs.mjs",
-    "plugins/codex/scripts/lib/process.mjs",
+    "plugins/codex/scripts/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts",
     "plugins/codex/scripts/lib/bun-runtime.d.ts",
     "plugins/codex/scripts/lib/app-server-protocol.d.ts",
     "plugins/codex/.generated/app-server-types/**/*.ts"

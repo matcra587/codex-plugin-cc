@@ -8,6 +8,10 @@ import type {
 import type {
   ExternalAgentConfigImportParams,
   ExternalAgentConfigImportResponse,
+  ConfigReadParams,
+  ConfigReadResponse,
+  GetAccountParams,
+  GetAccountResponse,
   ReviewStartParams,
   ReviewStartResponse,
   ReviewTarget,
@@ -58,6 +62,8 @@ export interface CodexAppServerClientOptions {
 
 export interface AppServerMethodMap {
   initialize: { params: InitializeParams; result: InitializeResponse };
+  "account/read": { params: GetAccountParams; result: GetAccountResponse };
+  "config/read": { params: ConfigReadParams; result: ConfigReadResponse };
   "externalAgentConfig/import": { params: ExternalAgentConfigImportParams; result: ExternalAgentConfigImportResponse };
   "thread/start": { params: ThreadStartParams; result: ThreadStartResponse };
   "thread/resume": { params: ThreadResumeParams; result: ThreadResumeResponse };
