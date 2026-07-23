@@ -48,7 +48,7 @@ export type ThreadStartParams = Omit<RawThreadStartParams, "persistExtendedHisto
 export type ThreadResumeParams = Omit<RawThreadResumeParams, "persistExtendedHistory">;
 
 export interface CodexAppServerClientOptions {
-  env?: NodeJS.ProcessEnv;
+  env?: Record<string, string | undefined>;
   clientInfo?: ClientInfo;
   capabilities?: InitializeCapabilities;
   brokerEndpoint?: string;

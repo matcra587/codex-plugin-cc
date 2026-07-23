@@ -1,55 +1,29 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test } from "bun:test";
+import { assert } from "./assertions.mjs";
 
 import { terminateProcessTree } from "../plugins/codex/scripts/lib/process.mjs";
 
-test("terminateProcessTree uses taskkill on Windows", () => {
+test("terminateProcessTree signals the Unix process group", () => {
   let captured = null;
   const outcome = terminateProcessTree(1234, {
-    platform: "win32",
-    runCommandImpl(command, args) {
-      captured = { command, args };
-      return {
-        command,
-        args,
-        status: 0,
-        signal: null,
-        stdout: "",
-        stderr: "",
-        error: null
-      };
-    },
-    killImpl() {
-      throw new Error("kill fallback should not run");
+    killImpl(pid, signal) {
+      captured = { pid, signal };
     }
   });
 
-  assert.deepEqual(captured, {
-    command: "taskkill",
-    args: ["/PID", "1234", "/T", "/F"]
-  });
+  assert.deepEqual(captured, { pid: -1234, signal: "SIGTERM" });
   assert.equal(outcome.delivered, true);
-  assert.equal(outcome.method, "taskkill");
+  assert.equal(outcome.method, "process-group");
 });
 
-test("terminateProcessTree treats missing Windows processes as already stopped", () => {
+test("terminateProcessTree treats a missing Unix process group as stopped", () => {
   const outcome = terminateProcessTree(1234, {
-    platform: "win32",
-    runCommandImpl(command, args) {
-      return {
-        command,
-        args,
-        status: 128,
-        signal: null,
-        stdout: "ERROR: The process \"1234\" not found.",
-        stderr: "",
-        error: null
-      };
+    killImpl() {
+      throw Object.assign(new Error("missing"), { code: "ESRCH" });
     }
   });
 
   assert.equal(outcome.attempted, true);
-  assert.equal(outcome.method, "taskkill");
-  assert.equal(outcome.result.status, 128);
-  assert.match(outcome.result.stdout, /not found/i);
+  assert.equal(outcome.delivered, false);
+  assert.equal(outcome.method, "process-group");
 });

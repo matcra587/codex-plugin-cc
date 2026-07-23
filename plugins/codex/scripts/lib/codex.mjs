@@ -34,10 +34,7 @@
  *   onProgress: ProgressReporter | null
  * }} TurnCaptureState
  */
-import crypto from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { fs, os, path } from "./platform.mjs";
 
 import { readJsonFile } from "./fs.mjs";
 import { BROKER_BUSY_RPC_CODE, BROKER_ENDPOINT_ENV, CodexAppServerClient } from "./app-server.mjs";
@@ -99,7 +96,7 @@ function shorten(text, limit = 72) {
 }
 
 function looksLikeVerificationCommand(command) {
-  return /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i.test(
+  return /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|bun test|pytest|cargo test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i.test(
     command
   );
 }
@@ -589,7 +586,11 @@ async function captureTurn(client, threadId, startRequest, options = {}) {
       state.threadTurnIds.set(state.threadId, state.turnId);
     }
     for (const message of state.bufferedNotifications) {
-      if (belongsToTurn(state, message)) {
+      if (
+        message.method === "thread/started" ||
+        message.method === "thread/name/updated" ||
+        belongsToTurn(state, message)
+      ) {
         applyTurnNotification(state, message);
       } else {
         if (previousHandler) {
@@ -655,7 +656,7 @@ function resolveCodexHome() {
 }
 
 function sourceContentSha256(sourcePath) {
-  return crypto.createHash("sha256").update(fs.readFileSync(sourcePath)).digest("hex");
+  return new Bun.CryptoHasher("sha256").update(fs.readFileSync(sourcePath)).digest("hex");
 }
 
 function importedThreadIdForSource(sourcePath) {
@@ -1002,7 +1003,7 @@ export async function interruptAppServerTurn(cwd, { threadId, turnId }) {
 export async function runAppServerReview(cwd, options = {}) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `npm install -g @openai/codex`, then rerun `/codex:setup`.");
+    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex`, then rerun `/codex:setup`.");
   }
 
   return withAppServer(cwd, async (client) => {
@@ -1058,7 +1059,7 @@ export async function runAppServerReview(cwd, options = {}) {
 export async function importExternalAgentSession(cwd, options = {}) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `npm install -g @openai/codex`, then rerun `/codex:setup`.");
+    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex`, then rerun `/codex:setup`.");
   }
   if (!options.sourcePath) {
     throw new Error("A Claude session source path is required.");
@@ -1071,7 +1072,7 @@ export async function importExternalAgentSession(cwd, options = {}) {
     } catch (error) {
       if (error?.rpcCode === -32601) {
         throw new Error(
-          "This Codex version does not support Claude session transfer. Update Codex with `npm install -g @openai/codex@latest`, then retry.",
+          "This Codex version does not support Claude session transfer. Update Codex with `bun add --global @openai/codex@latest`, then retry.",
           { cause: error }
         );
       }
@@ -1095,7 +1096,7 @@ export async function importExternalAgentSession(cwd, options = {}) {
 export async function runAppServerTurn(cwd, options = {}) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `npm install -g @openai/codex`, then rerun `/codex:setup`.");
+    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex`, then rerun `/codex:setup`.");
   }
 
   return withAppServer(cwd, async (client) => {
@@ -1162,7 +1163,7 @@ export async function runAppServerTurn(cwd, options = {}) {
 export async function findLatestTaskThread(cwd) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `npm install -g @openai/codex`, then rerun `/codex:setup`.");
+    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex`, then rerun `/codex:setup`.");
   }
 
   return withAppServer(cwd, async (client) => {

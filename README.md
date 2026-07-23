@@ -17,7 +17,8 @@ they already have.
 
 - **ChatGPT subscription (incl. Free) or OpenAI API key.**
   - Usage will contribute to your Codex usage limits. [Learn more](https://developers.openai.com/codex/pricing).
-- **Node.js 18.18 or later**
+- **Bun 1.3.14 or later**
+- **Linux or macOS**
 
 ## Install
 
@@ -45,12 +46,12 @@ Then run:
 /codex:setup
 ```
 
-`/codex:setup` will tell you whether Codex is ready. If Codex is missing and npm is available, it can offer to install Codex for you.
+`/codex:setup` will tell you whether Codex is ready. If Codex is missing and Bun is available, it can offer to install Codex for you.
 
 If you prefer to install Codex yourself, use:
 
 ```bash
-npm install -g @openai/codex
+bun add --global @openai/codex
 ```
 
 If Codex is installed but not logged in yet, run:
@@ -220,7 +221,7 @@ Examples:
 ### `/codex:setup`
 
 Checks whether Codex is installed and authenticated.
-If Codex is missing and npm is available, it can offer to install Codex for you.
+If Codex is missing and Bun is available, it can offer to install Codex for you.
 
 You can also use `/codex:setup` to manage the optional review gate.
 

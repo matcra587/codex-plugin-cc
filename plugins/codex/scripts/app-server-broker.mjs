@@ -1,9 +1,6 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
-import fs from "node:fs";
-import net from "node:net";
-import path from "node:path";
-import process from "node:process";
+import { fs, path } from "./lib/platform.mjs";
 
 import { parseArgs } from "./lib/args.mjs";
 import { BROKER_BUSY_RPC_CODE, CodexAppServerClient } from "./lib/app-server.mjs";
@@ -27,10 +24,11 @@ function buildJsonRpcError(code, message, data) {
 }
 
 function send(socket, message) {
-  if (socket.destroyed) {
-    return;
+  try {
+    socket.write(`${JSON.stringify(message)}\n`);
+  } catch {
+    // The peer may have closed between routing and delivery.
   }
-  socket.write(`${JSON.stringify(message)}\n`);
 }
 
 function isInterruptRequest(message) {
@@ -48,7 +46,7 @@ function writePidFile(pidFile) {
 async function main() {
   const [subcommand, ...argv] = process.argv.slice(2);
   if (subcommand !== "serve") {
-    throw new Error("Usage: node scripts/app-server-broker.mjs serve --endpoint <value> [--cwd <path>] [--pid-file <path>]");
+    throw new Error("Usage: bun scripts/app-server-broker.mjs serve --endpoint <value> [--cwd <path>] [--pid-file <path>]");
   }
 
   const { options } = parseArgs(argv, {
@@ -104,7 +102,7 @@ async function main() {
       socket.end();
     }
     await appClient.close().catch(() => {});
-    await new Promise((resolve) => server.close(resolve));
+    server.stop(true);
     if (listenTarget.kind === "unix" && fs.existsSync(listenTarget.path)) {
       fs.unlinkSync(listenTarget.path);
     }
@@ -115,122 +113,134 @@ async function main() {
 
   appClient.setNotificationHandler(routeNotification);
 
-  const server = net.createServer((socket) => {
-    sockets.add(socket);
-    socket.setEncoding("utf8");
-    let buffer = "";
+  async function handleSocketData(socket, chunk) {
+    let buffer = socket.data.buffer + socket.data.decoder.decode(chunk, { stream: true });
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex !== -1) {
+      const line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+      newlineIndex = buffer.indexOf("\n");
 
-    socket.on("data", async (chunk) => {
-      buffer += chunk;
-      let newlineIndex = buffer.indexOf("\n");
-      while (newlineIndex !== -1) {
-        const line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
-        newlineIndex = buffer.indexOf("\n");
+      if (!line.trim()) {
+        continue;
+      }
 
-        if (!line.trim()) {
-          continue;
-        }
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch (error) {
+        send(socket, {
+          id: null,
+          error: buildJsonRpcError(-32700, `Invalid JSON: ${error.message}`)
+        });
+        continue;
+      }
 
-        let message;
-        try {
-          message = JSON.parse(line);
-        } catch (error) {
-          send(socket, {
-            id: null,
-            error: buildJsonRpcError(-32700, `Invalid JSON: ${error.message}`)
-          });
-          continue;
-        }
-
-        if (message.id !== undefined && message.method === "initialize") {
-          send(socket, {
-            id: message.id,
-            result: {
-              userAgent: "codex-companion-broker"
-            }
-          });
-          continue;
-        }
-
-        if (message.method === "initialized" && message.id === undefined) {
-          continue;
-        }
-
-        if (message.id !== undefined && message.method === "broker/shutdown") {
-          send(socket, { id: message.id, result: {} });
-          await shutdown(server);
-          process.exit(0);
-        }
-
-        if (message.id === undefined) {
-          continue;
-        }
-
-        const allowInterruptDuringActiveStream =
-          isInterruptRequest(message) && activeStreamSocket && activeStreamSocket !== socket && !activeRequestSocket;
-
-        if (
-          ((activeRequestSocket && activeRequestSocket !== socket) || (activeStreamSocket && activeStreamSocket !== socket)) &&
-          !allowInterruptDuringActiveStream
-        ) {
-          send(socket, {
-            id: message.id,
-            error: buildJsonRpcError(BROKER_BUSY_RPC_CODE, "Shared Codex broker is busy.")
-          });
-          continue;
-        }
-
-        if (allowInterruptDuringActiveStream) {
-          try {
-            const result = await appClient.request(message.method, message.params ?? {});
-            send(socket, { id: message.id, result });
-          } catch (error) {
-            send(socket, {
-              id: message.id,
-              error: buildJsonRpcError(error.rpcCode ?? -32000, error.message)
-            });
+      if (message.id !== undefined && message.method === "initialize") {
+        send(socket, {
+          id: message.id,
+          result: {
+            userAgent: "codex-companion-broker"
           }
-          continue;
-        }
+        });
+        continue;
+      }
 
-        const isStreaming = STREAMING_METHODS.has(message.method);
-        activeRequestSocket = socket;
+      if (message.method === "initialized" && message.id === undefined) {
+        continue;
+      }
 
+      if (message.id !== undefined && message.method === "broker/shutdown") {
+        send(socket, { id: message.id, result: {} });
+        await shutdown(server);
+        process.exit(0);
+      }
+
+      if (message.id === undefined) {
+        continue;
+      }
+
+      const allowInterruptDuringActiveStream =
+        isInterruptRequest(message) && activeStreamSocket && activeStreamSocket !== socket && !activeRequestSocket;
+
+      if (
+        ((activeRequestSocket && activeRequestSocket !== socket) || (activeStreamSocket && activeStreamSocket !== socket)) &&
+        !allowInterruptDuringActiveStream
+      ) {
+        send(socket, {
+          id: message.id,
+          error: buildJsonRpcError(BROKER_BUSY_RPC_CODE, "Shared Codex broker is busy.")
+        });
+        continue;
+      }
+
+      if (allowInterruptDuringActiveStream) {
         try {
           const result = await appClient.request(message.method, message.params ?? {});
           send(socket, { id: message.id, result });
-          if (isStreaming) {
-            activeStreamSocket = socket;
-            activeStreamThreadIds = buildStreamThreadIds(message.method, message.params ?? {}, result);
-          }
-          if (activeRequestSocket === socket) {
-            activeRequestSocket = null;
-          }
         } catch (error) {
           send(socket, {
             id: message.id,
             error: buildJsonRpcError(error.rpcCode ?? -32000, error.message)
           });
-          if (activeRequestSocket === socket) {
-            activeRequestSocket = null;
-          }
-          if (activeStreamSocket === socket && !isStreaming) {
-            activeStreamSocket = null;
-          }
+        }
+        continue;
+      }
+
+      const isStreaming = STREAMING_METHODS.has(message.method);
+      activeRequestSocket = socket;
+
+      try {
+        const result = await appClient.request(message.method, message.params ?? {});
+        send(socket, { id: message.id, result });
+        if (isStreaming) {
+          activeStreamSocket = socket;
+          activeStreamThreadIds = buildStreamThreadIds(message.method, message.params ?? {}, result);
+        }
+        if (activeRequestSocket === socket) {
+          activeRequestSocket = null;
+        }
+      } catch (error) {
+        send(socket, {
+          id: message.id,
+          error: buildJsonRpcError(error.rpcCode ?? -32000, error.message)
+        });
+        if (activeRequestSocket === socket) {
+          activeRequestSocket = null;
+        }
+        if (activeStreamSocket === socket && !isStreaming) {
+          activeStreamSocket = null;
         }
       }
-    });
+    }
+    socket.data.buffer = buffer;
+  }
 
-    socket.on("close", () => {
-      sockets.delete(socket);
-      clearSocketOwnership(socket);
-    });
-
-    socket.on("error", () => {
-      sockets.delete(socket);
-      clearSocketOwnership(socket);
-    });
+  const server = Bun.listen({
+    unix: listenTarget.path,
+    socket: {
+      open(socket) {
+        socket.data = {
+          buffer: "",
+          decoder: new TextDecoder(),
+          queue: Promise.resolve()
+        };
+        sockets.add(socket);
+      },
+      data(socket, chunk) {
+        socket.data.queue = socket.data.queue
+          .then(() => handleSocketData(socket, chunk))
+          .catch(() => socket.end());
+      },
+      close(socket) {
+        sockets.delete(socket);
+        clearSocketOwnership(socket);
+      },
+      error(socket) {
+        sockets.delete(socket);
+        clearSocketOwnership(socket);
+      }
+    }
   });
 
   process.on("SIGTERM", async () => {
@@ -242,8 +252,6 @@ async function main() {
     await shutdown(server);
     process.exit(0);
   });
-
-  server.listen(listenTarget.path);
 }
 
 main().catch((error) => {

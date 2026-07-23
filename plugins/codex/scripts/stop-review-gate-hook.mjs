@@ -1,10 +1,6 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
-import fs from "node:fs";
-import process from "node:process";
-import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fs, path } from "./lib/platform.mjs";
 
 import { getCodexAvailability } from "./lib/codex.mjs";
 import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.mjs";
@@ -14,7 +10,7 @@ import { SESSION_ID_ENV } from "./lib/tracked-jobs.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 
 const STOP_REVIEW_TIMEOUT_MS = 15 * 60 * 1000;
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SCRIPT_DIR = path.dirname(Bun.fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
 const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
 
@@ -102,14 +98,15 @@ function runStopReview(cwd, input = {}) {
     ...process.env,
     ...(input.session_id ? { [SESSION_ID_ENV]: input.session_id } : {})
   };
-  const result = spawnSync(process.execPath, [scriptPath, "task", "--json", prompt], {
+  const result = Bun.spawnSync([process.execPath, scriptPath, "task", "--json", prompt], {
     cwd,
     env: childEnv,
-    encoding: "utf8",
+    stdout: "pipe",
+    stderr: "pipe",
     timeout: STOP_REVIEW_TIMEOUT_MS
   });
 
-  if (result.error?.code === "ETIMEDOUT") {
+  if (result.signalCode === "SIGTERM" && result.exitCode === null) {
     return {
       ok: false,
       reason:
@@ -117,7 +114,7 @@ function runStopReview(cwd, input = {}) {
     };
   }
 
-  if (result.status !== 0) {
+  if (result.exitCode !== 0) {
     const detail = String(result.stderr || result.stdout || "").trim();
     return {
       ok: false,
@@ -128,7 +125,7 @@ function runStopReview(cwd, input = {}) {
   }
 
   try {
-    const payload = JSON.parse(result.stdout);
+    const payload = JSON.parse(result.stdout.toString());
     return parseStopReviewOutput(payload?.rawOutput);
   } catch {
     return {

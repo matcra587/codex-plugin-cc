@@ -1,10 +1,6 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
-import { spawn } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
-import process from "node:process";
-import { fileURLToPath } from "node:url";
+import { fs, path } from "./lib/platform.mjs";
 
 import { parseArgs, splitRawArgumentString } from "./lib/args.mjs";
 import {
@@ -64,7 +60,7 @@ import {
   renderTaskResult
 } from "./lib/render.mjs";
 
-const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
+const ROOT_DIR = path.resolve(Bun.fileURLToPath(new URL("..", import.meta.url)));
 const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
 const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
@@ -76,14 +72,14 @@ function printUsage() {
   console.log(
     [
       "Usage:",
-      "  node scripts/codex-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--json]",
-      "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
-      "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
-      "  node scripts/codex-companion.mjs task [--background] [--write] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
-      "  node scripts/codex-companion.mjs transfer [--source <claude-jsonl>] [--json]",
-      "  node scripts/codex-companion.mjs status [job-id] [--all] [--json]",
-      "  node scripts/codex-companion.mjs result [job-id] [--json]",
-      "  node scripts/codex-companion.mjs cancel [job-id] [--json]"
+      "  bun scripts/codex-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--json]",
+      "  bun scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
+      "  bun scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
+      "  bun scripts/codex-companion.mjs task [--background] [--write] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
+      "  bun scripts/codex-companion.mjs transfer [--source <claude-jsonl>] [--json]",
+      "  bun scripts/codex-companion.mjs status [job-id] [--all] [--json]",
+      "  bun scripts/codex-companion.mjs result [job-id] [--json]",
+      "  bun scripts/codex-companion.mjs cancel [job-id] [--json]"
     ].join("\n")
   );
 }
@@ -181,15 +177,14 @@ function firstMeaningfulLine(text, fallback) {
 
 async function buildSetupReport(cwd, actionsTaken = []) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
-  const nodeStatus = binaryAvailable("node", ["--version"], { cwd });
-  const npmStatus = binaryAvailable("npm", ["--version"], { cwd });
+  const bunStatus = binaryAvailable("bun", ["--version"], { cwd });
   const codexStatus = getCodexAvailability(cwd);
   const authStatus = await getCodexAuthStatus(cwd);
   const config = getConfig(workspaceRoot);
 
   const nextSteps = [];
   if (!codexStatus.available) {
-    nextSteps.push("Install Codex with `npm install -g @openai/codex`.");
+    nextSteps.push("Install Codex with `bun add --global @openai/codex`.");
   }
   if (codexStatus.available && !authStatus.loggedIn && authStatus.requiresOpenaiAuth) {
     nextSteps.push("Run `!codex login`.");
@@ -200,9 +195,8 @@ async function buildSetupReport(cwd, actionsTaken = []) {
   }
 
   return {
-    ready: nodeStatus.available && codexStatus.available && authStatus.loggedIn,
-    node: nodeStatus,
-    npm: npmStatus,
+    ready: bunStatus.available && codexStatus.available && authStatus.loggedIn,
+    bun: bunStatus,
     codex: codexStatus,
     auth: authStatus,
     sessionRuntime: getSessionRuntimeStatus(process.env, workspaceRoot),
@@ -252,7 +246,7 @@ function buildAdversarialReviewPrompt(context, focusText) {
 function ensureCodexAvailable(cwd) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `npm install -g @openai/codex`, then rerun `/codex:setup`.");
+    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex`, then rerun `/codex:setup`.");
   }
 }
 
@@ -670,12 +664,13 @@ async function runForegroundCommand(job, runner, options = {}) {
 
 function spawnDetachedTaskWorker(cwd, jobId) {
   const scriptPath = path.join(ROOT_DIR, "scripts", "codex-companion.mjs");
-  const child = spawn(process.execPath, [scriptPath, "task-worker", "--cwd", cwd, "--job-id", jobId], {
+  const child = Bun.spawn([process.execPath, scriptPath, "task-worker", "--cwd", cwd, "--job-id", jobId], {
     cwd,
     env: process.env,
     detached: true,
-    stdio: "ignore",
-    windowsHide: true
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "ignore"
   });
   child.unref();
   return child;

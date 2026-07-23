@@ -1,8 +1,6 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
+import { fs, os, path } from "../plugins/codex/scripts/lib/platform.mjs";
+import { test } from "bun:test";
+import { assert } from "./assertions.mjs";
 
 import { makeTempDir } from "./helpers.mjs";
 import { resolveJobFile, resolveJobLogFile, resolveStateDir, resolveStateFile, saveState } from "../plugins/codex/scripts/lib/state.mjs";

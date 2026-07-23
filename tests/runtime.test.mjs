@@ -1,20 +1,33 @@
-import fs from "node:fs";
-import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fs, path } from "../plugins/codex/scripts/lib/platform.mjs";
+import { afterEach, test } from "bun:test";
+import { assert } from "./assertions.mjs";
 
 import { buildEnv, installFakeCodex } from "./fake-codex-fixture.mjs";
 import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
 import { loadBrokerSession, saveBrokerSession } from "../plugins/codex/scripts/lib/broker-lifecycle.mjs";
 import { resolveStateDir } from "../plugins/codex/scripts/lib/state.mjs";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = path.resolve(path.dirname(Bun.fileURLToPath(import.meta.url)), "..");
 const PLUGIN_ROOT = path.join(ROOT, "plugins", "codex");
 const SCRIPT = path.join(PLUGIN_ROOT, "scripts", "codex-companion.mjs");
 const STOP_HOOK = path.join(PLUGIN_ROOT, "scripts", "stop-review-gate-hook.mjs");
 const SESSION_HOOK = path.join(PLUGIN_ROOT, "scripts", "session-lifecycle-hook.mjs");
+const cleanupProcessGroups = new Set();
+
+afterEach(() => {
+  for (const pid of cleanupProcessGroups) {
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        // Ignore missing processes.
+      }
+    }
+  }
+  cleanupProcessGroups.clear();
+});
 
 async function waitFor(predicate, { timeoutMs = 5000, intervalMs = 50 } = {}) {
   const start = Date.now();
@@ -32,7 +45,7 @@ test("setup reports ready when fake codex is installed and authenticated", () =>
   const binDir = makeTempDir();
   installFakeCodex(binDir);
 
-  const result = run("node", [SCRIPT, "setup", "--json"], {
+  const result = run("bun", [SCRIPT, "setup", "--json"], {
     cwd: ROOT,
     env: buildEnv(binDir)
   });
@@ -44,12 +57,12 @@ test("setup reports ready when fake codex is installed and authenticated", () =>
   assert.equal(payload.sessionRuntime.mode, "direct");
 });
 
-test("setup is ready without npm when Codex is already installed and authenticated", () => {
+test("setup is ready when Bun and Codex are the only required binaries", () => {
   const binDir = makeTempDir();
   installFakeCodex(binDir);
-  fs.symlinkSync(process.execPath, path.join(binDir, "node"));
+  fs.symlinkSync(process.execPath, path.join(binDir, "bun"));
 
-  const result = run("node", [SCRIPT, "setup", "--json"], {
+  const result = run("bun", [SCRIPT, "setup", "--json"], {
     cwd: ROOT,
     env: {
       ...process.env,
@@ -60,7 +73,7 @@ test("setup is ready without npm when Codex is already installed and authenticat
   assert.equal(result.status, 0, result.stderr);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.ready, true);
-  assert.equal(payload.npm.available, false);
+  assert.equal(payload.bun.available, true);
   assert.equal(payload.codex.available, true);
   assert.equal(payload.auth.loggedIn, true);
 });
@@ -69,7 +82,7 @@ test("setup trusts app-server API key auth even when login status alone would fa
   const binDir = makeTempDir();
   installFakeCodex(binDir, "api-key-account-only");
 
-  const result = run("node", [SCRIPT, "setup", "--json"], {
+  const result = run("bun", [SCRIPT, "setup", "--json"], {
     cwd: ROOT,
     env: buildEnv(binDir)
   });
@@ -87,7 +100,7 @@ test("setup is ready when the active provider does not require OpenAI login", ()
   const binDir = makeTempDir();
   installFakeCodex(binDir, "provider-no-auth");
 
-  const result = run("node", [SCRIPT, "setup", "--json"], {
+  const result = run("bun", [SCRIPT, "setup", "--json"], {
     cwd: ROOT,
     env: buildEnv(binDir)
   });
@@ -105,7 +118,7 @@ test("setup treats custom providers with app-server-ready config as ready", () =
   const binDir = makeTempDir();
   installFakeCodex(binDir, "env-key-provider");
 
-  const result = run("node", [SCRIPT, "setup", "--json"], {
+  const result = run("bun", [SCRIPT, "setup", "--json"], {
     cwd: ROOT,
     env: buildEnv(binDir)
   });
@@ -123,7 +136,7 @@ test("setup reports not ready when app-server config read fails", () => {
   const binDir = makeTempDir();
   installFakeCodex(binDir, "config-read-fails");
 
-  const result = run("node", [SCRIPT, "setup", "--json"], {
+  const result = run("bun", [SCRIPT, "setup", "--json"], {
     cwd: ROOT,
     env: buildEnv(binDir)
   });
@@ -147,7 +160,7 @@ test("review renders a no-findings result from app-server review/start", () => {
   run("git", ["commit", "-m", "init"], { cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "app.js"), "export const value = 2;\n");
 
-  const result = run("node", [SCRIPT, "review"], {
+  const result = run("bun", [SCRIPT, "review"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -166,7 +179,7 @@ test("task runs when the active provider does not require OpenAI login", () => {
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "check auth preflight"], {
+  const result = run("bun", [SCRIPT, "task", "check auth preflight"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -184,7 +197,7 @@ test("task runs without auth preflight so Codex can refresh an expired session",
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "check refreshable auth"], {
+  const result = run("bun", [SCRIPT, "task", "check refreshable auth"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -215,7 +228,7 @@ test("transfer delegates the current Claude session directly to native import", 
     ].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
     "utf8"
   );
-  const result = run("node", [SCRIPT, "transfer", "--json"], {
+  const result = run("bun", [SCRIPT, "transfer", "--json"], {
     cwd: repo,
     env: {
       ...buildEnv(binDir),
@@ -260,7 +273,7 @@ test("transfer reports an actionable upgrade error when native import is unsuppo
     "utf8"
   );
 
-  const result = run("node", [SCRIPT, "transfer", "--source", sourcePath, "--json"], {
+  const result = run("bun", [SCRIPT, "transfer", "--source", sourcePath, "--json"], {
     cwd: repo,
     env: {
       ...buildEnv(binDir),
@@ -290,7 +303,7 @@ test("transfer fails visibly when native import completes without a ledger recor
     "utf8"
   );
 
-  const result = run("node", [SCRIPT, "transfer", "--source", sourcePath], {
+  const result = run("bun", [SCRIPT, "transfer", "--source", sourcePath], {
     cwd: repo,
     env: {
       ...buildEnv(binDir),
@@ -318,7 +331,7 @@ test("transfer rejects sources outside the Claude projects directory", () => {
     "utf8"
   );
 
-  const result = run("node", [SCRIPT, "transfer", "--source", sourcePath], {
+  const result = run("bun", [SCRIPT, "transfer", "--source", sourcePath], {
     cwd: repo,
     env: { ...buildEnv(binDir), HOME: home }
   });
@@ -336,7 +349,7 @@ test("task reports the actual Codex auth error when the run is rejected", () => 
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "check failed auth"], {
+  const result = run("bun", [SCRIPT, "task", "check failed auth"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -356,7 +369,7 @@ test("review accepts the quoted raw argument style for built-in base-branch revi
   run("git", ["commit", "-m", "init"], { cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "app.js"), "export const value = 2;\n");
 
-  const result = run("node", [SCRIPT, "review", "--base main"], {
+  const result = run("bun", [SCRIPT, "review", "--base main"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -377,7 +390,7 @@ test("adversarial review renders structured findings over app-server turn/start"
   run("git", ["commit", "-m", "init"], { cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "app.js"), "export const value = items[0].id;\n");
 
-  const result = run("node", [SCRIPT, "adversarial-review"], {
+  const result = run("bun", [SCRIPT, "adversarial-review"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -397,7 +410,7 @@ test("adversarial review accepts the same base-branch targeting as review", () =
   run("git", ["commit", "-m", "init"], { cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "app.js"), "export const value = items[0].id;\n");
 
-  const result = run("node", [SCRIPT, "adversarial-review", "--base", "main"], {
+  const result = run("bun", [SCRIPT, "adversarial-review", "--base", "main"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -422,7 +435,7 @@ test("adversarial review asks Codex to inspect larger diffs itself", () => {
   fs.writeFileSync(path.join(repo, "src", "b.js"), 'export const value = "PROMPT_SELF_COLLECT_B";\n');
   fs.writeFileSync(path.join(repo, "src", "c.js"), 'export const value = "PROMPT_SELF_COLLECT_C";\n');
 
-  const result = run("node", [SCRIPT, "adversarial-review"], {
+  const result = run("bun", [SCRIPT, "adversarial-review"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -444,7 +457,7 @@ test("review includes reasoning output when the app server returns it", () => {
   run("git", ["commit", "-m", "init"], { cwd: repo });
   fs.writeFileSync(path.join(repo, "README.md"), "hello again\n");
 
-  const result = run("node", [SCRIPT, "review"], {
+  const result = run("bun", [SCRIPT, "review"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -464,7 +477,7 @@ test("review logs reasoning summaries and review output to the job log", () => {
   run("git", ["commit", "-m", "init"], { cwd: repo });
   fs.writeFileSync(path.join(repo, "README.md"), "hello again\n");
 
-  const result = run("node", [SCRIPT, "review"], {
+  const result = run("bun", [SCRIPT, "review"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -488,13 +501,13 @@ test("task --resume-last resumes the latest persisted task thread", () => {
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const firstRun = run("node", [SCRIPT, "task", "initial task"], {
+  const firstRun = run("bun", [SCRIPT, "task", "initial task"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
   assert.equal(firstRun.status, 0, firstRun.stderr);
 
-  const result = run("node", [SCRIPT, "task", "--resume-last", "follow up"], {
+  const result = run("bun", [SCRIPT, "task", "--resume-last", "follow up"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -554,7 +567,7 @@ test("task-resume-candidate returns the latest rescue thread from the current se
     "utf8"
   );
 
-  const result = run("node", [SCRIPT, "task-resume-candidate", "--json"], {
+  const result = run("bun", [SCRIPT, "task-resume-candidate", "--json"], {
     cwd: workspace,
     env: {
       ...process.env,
@@ -589,20 +602,20 @@ test("task --resume-last does not resume a task from another Claude session", ()
     CODEX_COMPANION_SESSION_ID: "sess-current"
   };
 
-  const firstRun = run("node", [SCRIPT, "task", "initial task"], {
+  const firstRun = run("bun", [SCRIPT, "task", "initial task"], {
     cwd: repo,
     env: otherEnv
   });
   assert.equal(firstRun.status, 0, firstRun.stderr);
 
-  const candidate = run("node", [SCRIPT, "task-resume-candidate", "--json"], {
+  const candidate = run("bun", [SCRIPT, "task-resume-candidate", "--json"], {
     cwd: repo,
     env: currentEnv
   });
   assert.equal(candidate.status, 0, candidate.stderr);
   assert.equal(JSON.parse(candidate.stdout).available, false);
 
-  const resume = run("node", [SCRIPT, "task", "--resume-last", "follow up"], {
+  const resume = run("bun", [SCRIPT, "task", "--resume-last", "follow up"], {
     cwd: repo,
     env: currentEnv
   });
@@ -654,14 +667,14 @@ test("task --resume-last ignores running tasks from other Claude sessions", () =
     ...buildEnv(binDir),
     CODEX_COMPANION_SESSION_ID: "sess-current"
   };
-  const status = run("node", [SCRIPT, "status", "--json"], {
+  const status = run("bun", [SCRIPT, "status", "--json"], {
     cwd: repo,
     env
   });
   assert.equal(status.status, 0, status.stderr);
   assert.deepEqual(JSON.parse(status.stdout).running, []);
 
-  const resume = run("node", [SCRIPT, "task", "--resume-last", "follow up"], {
+  const resume = run("bun", [SCRIPT, "task", "--resume-last", "follow up"], {
     cwd: repo,
     env
   });
@@ -676,7 +689,7 @@ test("session start hook exports the Claude session id, transcript path, and plu
   const pluginDataDir = makeTempDir();
   const transcriptPath = path.join(repo, "session.jsonl");
 
-  const result = run("node", [SESSION_HOOK, "SessionStart"], {
+  const result = run("bun", [SESSION_HOOK, "SessionStart"], {
     cwd: repo,
     env: {
       ...process.env,
@@ -707,7 +720,7 @@ test("write task output focuses on the Codex result without generic follow-up hi
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "--write", "fix the failing test"], {
+  const result = run("bun", [SCRIPT, "task", "--write", "fix the failing test"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -726,13 +739,13 @@ test("task --resume acts like --resume-last without leaking the flag into the pr
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const firstRun = run("node", [SCRIPT, "task", "initial task"], {
+  const firstRun = run("bun", [SCRIPT, "task", "initial task"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
   assert.equal(firstRun.status, 0, firstRun.stderr);
 
-  const result = run("node", [SCRIPT, "task", "--resume", "follow up"], {
+  const result = run("bun", [SCRIPT, "task", "--resume", "follow up"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -753,7 +766,7 @@ test("task --fresh is treated as routing control and does not leak into the prom
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "--fresh", "diagnose the flaky test"], {
+  const result = run("bun", [SCRIPT, "task", "--fresh", "diagnose the flaky test"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -773,7 +786,7 @@ test("task forwards model selection and reasoning effort to app-server turn/star
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "--model", "spark", "--effort", "low", "diagnose the failing test"], {
+  const result = run("bun", [SCRIPT, "task", "--model", "spark", "--effort", "low", "diagnose the failing test"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -793,7 +806,7 @@ test("task logs reasoning summaries and assistant messages to the job log", () =
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "investigate the failing test"], {
+  const result = run("bun", [SCRIPT, "task", "investigate the failing test"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -817,7 +830,7 @@ test("task logs subagent reasoning and messages with a subagent prefix", () => {
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "challenge the current design"], {
+  const result = run("bun", [SCRIPT, "task", "challenge the current design"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -845,7 +858,7 @@ test("task waits for the main thread to complete before returning the final resu
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "challenge the current design"], {
+  const result = run("bun", [SCRIPT, "task", "challenge the current design"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -863,7 +876,7 @@ test("task ignores later subagent messages when choosing the final returned outp
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "challenge the current design"], {
+  const result = run("bun", [SCRIPT, "task", "challenge the current design"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -881,7 +894,7 @@ test("task can finish after subagent work even if the parent turn/completed even
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "challenge the current design"], {
+  const result = run("bun", [SCRIPT, "task", "challenge the current design"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -901,7 +914,7 @@ test("task using the shared broker still completes when Codex spawns subagents",
   fs.writeFileSync(path.join(repo, "README.md"), "hello again\n");
 
   const env = buildEnv(binDir);
-  const review = run("node", [SCRIPT, "review"], {
+  const review = run("bun", [SCRIPT, "review"], {
     cwd: repo,
     env
   });
@@ -911,7 +924,7 @@ test("task using the shared broker still completes when Codex spawns subagents",
     return;
   }
 
-  const result = run("node", [SCRIPT, "task", "challenge the current design"], {
+  const result = run("bun", [SCRIPT, "task", "challenge the current design"], {
     cwd: repo,
     env
   });
@@ -929,7 +942,7 @@ test("task --background enqueues a detached worker and exposes per-job status", 
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const launched = run("node", [SCRIPT, "task", "--background", "--json", "investigate the failing test"], {
+  const launched = run("bun", [SCRIPT, "task", "--background", "--json", "investigate the failing test"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -940,7 +953,7 @@ test("task --background enqueues a detached worker and exposes per-job status", 
   assert.match(launchPayload.jobId, /^task-/);
 
   const waitedStatus = run(
-    "node",
+    "bun",
     [SCRIPT, "status", launchPayload.jobId, "--wait", "--timeout-ms", "15000", "--json"],
     {
       cwd: repo,
@@ -954,7 +967,7 @@ test("task --background enqueues a detached worker and exposes per-job status", 
   assert.equal(waitedPayload.job.status, "completed");
 
   const resultPayload = await waitFor(() => {
-    const result = run("node", [SCRIPT, "result", launchPayload.jobId, "--json"], {
+    const result = run("bun", [SCRIPT, "result", launchPayload.jobId, "--json"], {
       cwd: repo,
       env: buildEnv(binDir)
     });
@@ -979,7 +992,7 @@ test("review rejects focus text because it is native-review only", () => {
   run("git", ["commit", "-m", "init"], { cwd: repo });
   fs.writeFileSync(path.join(repo, "README.md"), "hello again\n");
 
-  const result = run("node", [SCRIPT, "review", "--scope working-tree focus on auth"], {
+  const result = run("bun", [SCRIPT, "review", "--scope working-tree focus on auth"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -1000,7 +1013,7 @@ test("review rejects staged-only scope because it is native-review only", () => 
   fs.writeFileSync(path.join(repo, "README.md"), "hello again\n");
   run("git", ["add", "README.md"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "review", "--scope", "staged"], {
+  const result = run("bun", [SCRIPT, "review", "--scope", "staged"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -1021,7 +1034,7 @@ test("adversarial review rejects staged-only scope to match review target select
   fs.writeFileSync(path.join(repo, "README.md"), "hello again\n");
   run("git", ["add", "README.md"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "adversarial-review", "--scope", "staged"], {
+  const result = run("bun", [SCRIPT, "adversarial-review", "--scope", "staged"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -1041,7 +1054,7 @@ test("review accepts --background while still running as a tracked review job", 
   run("git", ["commit", "-m", "init"], { cwd: repo });
   fs.writeFileSync(path.join(repo, "README.md"), "hello again\n");
 
-  const launched = run("node", [SCRIPT, "review", "--background", "--json"], {
+  const launched = run("bun", [SCRIPT, "review", "--background", "--json"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -1051,7 +1064,7 @@ test("review accepts --background while still running as a tracked review job", 
   assert.equal(launchPayload.review, "Review");
   assert.match(launchPayload.codex.stdout, /No material issues found/);
 
-  const status = run("node", [SCRIPT, "status"], {
+  const status = run("bun", [SCRIPT, "status"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -1137,7 +1150,7 @@ test("status shows phases, hints, and the latest finished job", () => {
     "utf8"
   );
 
-  const result = run("node", [SCRIPT, "status"], {
+  const result = run("bun", [SCRIPT, "status"], {
     cwd: workspace
   });
 
@@ -1216,7 +1229,7 @@ test("status without a job id only shows jobs from the current Claude session", 
     "utf8"
   );
 
-  const result = run("node", [SCRIPT, "status"], {
+  const result = run("bun", [SCRIPT, "status"], {
     cwd: workspace,
     env: {
       ...process.env,
@@ -1281,7 +1294,7 @@ test("status preserves adversarial review kind labels", () => {
     "utf8"
   );
 
-  const result = run("node", [SCRIPT, "status"], {
+  const result = run("bun", [SCRIPT, "status"], {
     cwd: workspace
   });
 
@@ -1341,7 +1354,7 @@ test("status --wait times out cleanly when a job is still active", () => {
     "utf8"
   );
 
-  const result = run("node", [SCRIPT, "status", "task-live", "--wait", "--timeout-ms", "25", "--json"], {
+  const result = run("bun", [SCRIPT, "status", "task-live", "--wait", "--timeout-ms", "25", "--json"], {
     cwd: workspace
   });
 
@@ -1404,7 +1417,7 @@ test("result returns the stored output for the latest finished job by default", 
     "utf8"
   );
 
-  const result = run("node", [SCRIPT, "result"], {
+  const result = run("bun", [SCRIPT, "result"], {
     cwd: workspace
   });
 
@@ -1498,7 +1511,7 @@ test("result without a job id prefers the latest finished job from the current C
     "utf8"
   );
 
-  const result = run("node", [SCRIPT, "result"], {
+  const result = run("bun", [SCRIPT, "result"], {
     cwd: workspace,
     env: {
       ...process.env,
@@ -1522,13 +1535,13 @@ test("result for a finished write-capable task returns the raw Codex final respo
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const taskRun = run("node", [SCRIPT, "task", "--write", "fix the flaky integration test"], {
+  const taskRun = run("bun", [SCRIPT, "task", "--write", "fix the flaky integration test"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
   assert.equal(taskRun.status, 0, taskRun.stderr);
 
-  const result = run("node", [SCRIPT, "result"], {
+  const result = run("bun", [SCRIPT, "result"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -1539,30 +1552,21 @@ test("result for a finished write-capable task returns the raw Codex final respo
   assert.match(result.stdout, /Resume in Codex: codex resume thr_[a-z0-9]+/i);
 });
 
-test("cancel stops an active background job and marks it cancelled", async (t) => {
+test("cancel stops an active background job and marks it cancelled", async () => {
   const workspace = makeTempDir();
   const stateDir = resolveStateDir(workspace);
   const jobsDir = path.join(stateDir, "jobs");
   fs.mkdirSync(jobsDir, { recursive: true });
 
-  const sleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+  const sleeper = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], {
     cwd: workspace,
     detached: true,
-    stdio: "ignore"
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "ignore"
   });
   sleeper.unref();
-
-  t.after(() => {
-    try {
-      process.kill(-sleeper.pid, "SIGTERM");
-    } catch {
-      try {
-        process.kill(sleeper.pid, "SIGTERM");
-      } catch {
-        // Ignore missing process.
-      }
-    }
-  });
+  cleanupProcessGroups.add(sleeper.pid);
 
   const logFile = path.join(jobsDir, "task-live.log");
   const jobFile = path.join(jobsDir, "task-live.json");
@@ -1608,7 +1612,7 @@ test("cancel stops an active background job and marks it cancelled", async (t) =
     "utf8"
   );
 
-  const cancelResult = run("node", [SCRIPT, "cancel", "task-live", "--json"], {
+  const cancelResult = run("bun", [SCRIPT, "cancel", "task-live", "--json"], {
     cwd: workspace
   });
 
@@ -1671,14 +1675,14 @@ test("cancel without a job id ignores active jobs from other Claude sessions", (
     ...process.env,
     CODEX_COMPANION_SESSION_ID: "sess-current"
   };
-  const status = run("node", [SCRIPT, "status", "--json"], {
+  const status = run("bun", [SCRIPT, "status", "--json"], {
     cwd: workspace,
     env
   });
   assert.equal(status.status, 0, status.stderr);
   assert.deepEqual(JSON.parse(status.stdout).running, []);
 
-  const cancel = run("node", [SCRIPT, "cancel", "--json"], {
+  const cancel = run("bun", [SCRIPT, "cancel", "--json"], {
     cwd: workspace,
     env
   });
@@ -1726,7 +1730,7 @@ test("cancel with a job id can still target an active job from another Claude se
     ...process.env,
     CODEX_COMPANION_SESSION_ID: "sess-current"
   };
-  const cancel = run("node", [SCRIPT, "cancel", "task-other", "--json"], {
+  const cancel = run("bun", [SCRIPT, "cancel", "task-other", "--json"], {
     cwd: workspace,
     env
   });
@@ -1748,7 +1752,7 @@ test("cancel sends turn interrupt to the shared app-server before killing a brok
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
   const env = buildEnv(binDir);
-  const launched = run("node", [SCRIPT, "task", "--background", "--json", "investigate the flaky worker timeout"], {
+  const launched = run("bun", [SCRIPT, "task", "--background", "--json", "investigate the flaky worker timeout"], {
     cwd: repo,
     env
   });
@@ -1768,7 +1772,7 @@ test("cancel sends turn interrupt to the shared app-server before killing a brok
     return null;
   }, { timeoutMs: 15000 });
 
-  const cancelResult = run("node", [SCRIPT, "cancel", jobId, "--json"], {
+  const cancelResult = run("bun", [SCRIPT, "cancel", jobId, "--json"], {
     cwd: repo,
     env
   });
@@ -1790,7 +1794,7 @@ test("cancel sends turn interrupt to the shared app-server before killing a brok
     turnId: runningJob.turnId
   });
 
-  const cleanup = run("node", [SESSION_HOOK, "SessionEnd"], {
+  const cleanup = run("bun", [SESSION_HOOK, "SessionEnd"], {
     cwd: repo,
     env,
     input: JSON.stringify({
@@ -1801,7 +1805,7 @@ test("cancel sends turn interrupt to the shared app-server before killing a brok
   assert.equal(cleanup.status, 0, cleanup.stderr);
 });
 
-test("session end fully cleans up jobs for the ending session", async (t) => {
+test("session end fully cleans up jobs for the ending session", async () => {
   const repo = makeTempDir();
   initGitRepo(repo);
   fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
@@ -1824,25 +1828,16 @@ test("session end fully cleans up jobs for the ending session", async (t) => {
   fs.writeFileSync(completedJobFile, JSON.stringify({ id: "review-completed" }, null, 2), "utf8");
   fs.writeFileSync(otherJobFile, JSON.stringify({ id: "review-other" }, null, 2), "utf8");
 
-  const sleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+  const sleeper = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], {
     cwd: repo,
     detached: true,
-    stdio: "ignore"
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "ignore"
   });
   sleeper.unref();
+  cleanupProcessGroups.add(sleeper.pid);
   fs.writeFileSync(runningJobFile, JSON.stringify({ id: "review-running" }, null, 2), "utf8");
-
-  t.after(() => {
-    try {
-      process.kill(-sleeper.pid, "SIGTERM");
-    } catch {
-      try {
-        process.kill(sleeper.pid, "SIGTERM");
-      } catch {
-        // Ignore missing process.
-      }
-    }
-  });
 
   fs.writeFileSync(
     path.join(stateDir, "state.json"),
@@ -1887,7 +1882,7 @@ test("session end fully cleans up jobs for the ending session", async (t) => {
     "utf8"
   );
 
-  const result = run("node", [SESSION_HOOK, "SessionEnd"], {
+  const result = run("bun", [SESSION_HOOK, "SessionEnd"], {
     cwd: repo,
     env: {
       ...process.env,
@@ -1933,7 +1928,7 @@ test("stop hook runs a stop-time review task and blocks on findings when the rev
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const setup = run("node", [SCRIPT, "setup", "--enable-review-gate", "--json"], {
+  const setup = run("bun", [SCRIPT, "setup", "--enable-review-gate", "--json"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -1941,13 +1936,13 @@ test("stop hook runs a stop-time review task and blocks on findings when the rev
   const setupPayload = JSON.parse(setup.stdout);
   assert.equal(setupPayload.reviewGateEnabled, true);
 
-  const taskResult = run("node", [SCRIPT, "task", "--write", "fix the issue"], {
+  const taskResult = run("bun", [SCRIPT, "task", "--write", "fix the issue"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
   assert.equal(taskResult.status, 0, taskResult.stderr);
 
-  const blocked = run("node", [STOP_HOOK], {
+  const blocked = run("bun", [STOP_HOOK], {
     cwd: repo,
     env: buildEnv(binDir),
     input: JSON.stringify({
@@ -1968,7 +1963,7 @@ test("stop hook runs a stop-time review task and blocks on findings when the rev
   assert.match(fakeState.lastTurnStart.prompt, /Only review the work from the previous Claude turn/i);
   assert.match(fakeState.lastTurnStart.prompt, /I completed the refactor and updated the retry logic\./);
 
-  const status = run("node", [SCRIPT, "status"], {
+  const status = run("bun", [SCRIPT, "status"], {
     cwd: repo,
     env: {
       ...buildEnv(binDir),
@@ -2020,7 +2015,7 @@ test("stop hook logs running tasks to stderr without blocking when the review ga
     "utf8"
   );
 
-  const blocked = run("node", [STOP_HOOK], {
+  const blocked = run("bun", [STOP_HOOK], {
     cwd: repo,
     env: {
       ...process.env,
@@ -2045,13 +2040,13 @@ test("stop hook allows the stop when the review gate is enabled and the stop-tim
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const setup = run("node", [SCRIPT, "setup", "--enable-review-gate", "--json"], {
+  const setup = run("bun", [SCRIPT, "setup", "--enable-review-gate", "--json"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
   assert.equal(setup.status, 0, setup.stderr);
 
-  const allowed = run("node", [STOP_HOOK], {
+  const allowed = run("bun", [STOP_HOOK], {
     cwd: repo,
     env: buildEnv(binDir),
     input: JSON.stringify({ cwd: repo, session_id: "sess-stop-clean" })
@@ -2097,13 +2092,13 @@ test("stop hook runs the actual task when auth status looks stale", () => {
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const setup = run("node", [SCRIPT, "setup", "--enable-review-gate", "--json"], {
+  const setup = run("bun", [SCRIPT, "setup", "--enable-review-gate", "--json"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
   assert.equal(setup.status, 0, setup.stderr);
 
-  const allowed = run("node", [STOP_HOOK], {
+  const allowed = run("bun", [STOP_HOOK], {
     cwd: repo,
     env: buildEnv(binDir),
     input: JSON.stringify({ cwd: repo })
@@ -2130,7 +2125,7 @@ test("commands lazily start and reuse one shared app-server after first use", as
 
   const env = buildEnv(binDir);
 
-  const review = run("node", [SCRIPT, "review"], {
+  const review = run("bun", [SCRIPT, "review"], {
     cwd: repo,
     env
   });
@@ -2141,7 +2136,7 @@ test("commands lazily start and reuse one shared app-server after first use", as
     return;
   }
 
-  const adversarial = run("node", [SCRIPT, "adversarial-review"], {
+  const adversarial = run("bun", [SCRIPT, "adversarial-review"], {
     cwd: repo,
     env
   });
@@ -2150,7 +2145,7 @@ test("commands lazily start and reuse one shared app-server after first use", as
   const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));
   assert.equal(fakeState.appServerStarts, 1);
 
-  const cleanup = run("node", [SESSION_HOOK, "SessionEnd"], {
+  const cleanup = run("bun", [SESSION_HOOK, "SessionEnd"], {
     cwd: repo,
     env,
     input: JSON.stringify({
@@ -2175,7 +2170,7 @@ test("setup reuses an existing shared app-server without starting another one", 
 
   const env = buildEnv(binDir);
 
-  const review = run("node", [SCRIPT, "review"], {
+  const review = run("bun", [SCRIPT, "review"], {
     cwd: repo,
     env
   });
@@ -2186,7 +2181,7 @@ test("setup reuses an existing shared app-server without starting another one", 
     return;
   }
 
-  const setup = run("node", [SCRIPT, "setup", "--json"], {
+  const setup = run("bun", [SCRIPT, "setup", "--json"], {
     cwd: repo,
     env
   });
@@ -2195,7 +2190,7 @@ test("setup reuses an existing shared app-server without starting another one", 
   const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));
   assert.equal(fakeState.appServerStarts, 1);
 
-  const cleanup = run("node", [SESSION_HOOK, "SessionEnd"], {
+  const cleanup = run("bun", [SESSION_HOOK, "SessionEnd"], {
     cwd: repo,
     env,
     input: JSON.stringify({
@@ -2216,7 +2211,7 @@ test("status reports shared session runtime when a lazy broker is active", () =>
   run("git", ["commit", "-m", "init"], { cwd: repo });
   fs.writeFileSync(path.join(repo, "README.md"), "hello again\n");
 
-  const review = run("node", [SCRIPT, "review"], {
+  const review = run("bun", [SCRIPT, "review"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -2226,7 +2221,7 @@ test("status reports shared session runtime when a lazy broker is active", () =>
     return;
   }
 
-  const result = run("node", [SCRIPT, "status"], {
+  const result = run("bun", [SCRIPT, "status"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -2243,13 +2238,13 @@ test("setup and status honor --cwd when reading shared session runtime", () => {
     endpoint: "unix:/tmp/fake-broker.sock"
   });
 
-  const status = run("node", [SCRIPT, "status", "--cwd", targetWorkspace], {
+  const status = run("bun", [SCRIPT, "status", "--cwd", targetWorkspace], {
     cwd: invocationWorkspace
   });
   assert.equal(status.status, 0, status.stderr);
   assert.match(status.stdout, /Session runtime: shared session/);
 
-  const setup = run("node", [SCRIPT, "setup", "--cwd", targetWorkspace, "--json"], {
+  const setup = run("bun", [SCRIPT, "setup", "--cwd", targetWorkspace, "--json"], {
     cwd: invocationWorkspace
   });
   assert.equal(setup.status, 0, setup.stderr);

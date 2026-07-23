@@ -10,13 +10,14 @@
     "noImplicitAny": false,
     "useUnknownInCatchVariables": false,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": []
   },
   "include": [
     "plugins/codex/scripts/lib/app-server.mjs",
     "plugins/codex/scripts/lib/codex.mjs",
     "plugins/codex/scripts/lib/fs.mjs",
     "plugins/codex/scripts/lib/process.mjs",
+    "plugins/codex/scripts/lib/bun-runtime.d.ts",
     "plugins/codex/scripts/lib/app-server-protocol.d.ts",
     "plugins/codex/.generated/app-server-types/**/*.ts"
   ]

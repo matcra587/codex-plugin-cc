@@ -1,10 +1,4 @@
-import fs from "node:fs";
-import net from "node:net";
-import os from "node:os";
-import path from "node:path";
-import process from "node:process";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fs, os, path } from "./platform.mjs";
 import { createBrokerEndpoint, parseBrokerEndpoint } from "./broker-endpoint.mjs";
 import { resolveStateDir } from "./state.mjs";
 
@@ -16,21 +10,27 @@ export function createBrokerSessionDir(prefix = "cxc-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-function connectToEndpoint(endpoint) {
-  const target = parseBrokerEndpoint(endpoint);
-  return net.createConnection({ path: target.path });
-}
-
 export async function waitForBrokerEndpoint(endpoint, timeoutMs = 2000) {
+  const target = parseBrokerEndpoint(endpoint);
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const ready = await new Promise((resolve) => {
-      const socket = connectToEndpoint(endpoint);
-      socket.on("connect", () => {
-        socket.end();
-        resolve(true);
-      });
-      socket.on("error", () => resolve(false));
+    const ready = await new Promise(async (resolve) => {
+      try {
+        await Bun.connect({
+          unix: target.path,
+          socket: {
+            open(socket) {
+              socket.end();
+              resolve(true);
+            },
+            error() {
+              resolve(false);
+            }
+          }
+        });
+      } catch {
+        resolve(false);
+      }
     });
     if (ready) {
       return true;
@@ -41,31 +41,44 @@ export async function waitForBrokerEndpoint(endpoint, timeoutMs = 2000) {
 }
 
 export async function sendBrokerShutdown(endpoint) {
-  await new Promise((resolve) => {
-    const socket = connectToEndpoint(endpoint);
-    socket.setEncoding("utf8");
-    socket.on("connect", () => {
-      socket.write(`${JSON.stringify({ id: 1, method: "broker/shutdown", params: {} })}\n`);
-    });
-    socket.on("data", () => {
-      socket.end();
+  const target = parseBrokerEndpoint(endpoint);
+  await new Promise(async (resolve) => {
+    try {
+      await Bun.connect({
+        unix: target.path,
+        socket: {
+          open(socket) {
+            socket.write(`${JSON.stringify({ id: 1, method: "broker/shutdown", params: {} })}\n`);
+          },
+          data(socket) {
+            socket.end();
+            resolve();
+          },
+          error() {
+            resolve();
+          },
+          close() {
+            resolve();
+          }
+        }
+      });
+    } catch {
       resolve();
-    });
-    socket.on("error", resolve);
-    socket.on("close", resolve);
+    }
   });
 }
 
 export function spawnBrokerProcess({ scriptPath, cwd, endpoint, pidFile, logFile, env = process.env }) {
-  const logFd = fs.openSync(logFile, "a");
-  const child = spawn(process.execPath, [scriptPath, "serve", "--endpoint", endpoint, "--cwd", cwd, "--pid-file", pidFile], {
+  const log = Bun.file(logFile);
+  const child = Bun.spawn([process.execPath, scriptPath, "serve", "--endpoint", endpoint, "--cwd", cwd, "--pid-file", pidFile], {
     cwd,
     env,
     detached: true,
-    stdio: ["ignore", logFd, logFd]
+    stdin: "ignore",
+    stdout: log,
+    stderr: log
   });
   child.unref();
-  fs.closeSync(logFd);
   return child;
 }
 
@@ -130,12 +143,12 @@ export async function ensureBrokerSession(cwd, options = {}) {
 
   const sessionDir = createBrokerSessionDir();
   const endpointFactory = options.createBrokerEndpoint ?? createBrokerEndpoint;
-  const endpoint = endpointFactory(sessionDir, options.platform);
+  const endpoint = endpointFactory(sessionDir);
   const pidFile = path.join(sessionDir, "broker.pid");
   const logFile = path.join(sessionDir, "broker.log");
   const scriptPath =
     options.scriptPath ??
-    fileURLToPath(new URL("../app-server-broker.mjs", import.meta.url));
+    Bun.fileURLToPath(new URL("../app-server-broker.mjs", import.meta.url));
 
   const child = spawnBrokerProcess({
     scriptPath,

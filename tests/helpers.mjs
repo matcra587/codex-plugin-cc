@@ -1,8 +1,4 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import process from "node:process";
-import { spawnSync } from "node:child_process";
+import { fs, os, path } from "../plugins/codex/scripts/lib/platform.mjs";
 
 export function makeTempDir(prefix = "codex-plugin-test-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -13,14 +9,30 @@ export function writeExecutable(filePath, source) {
 }
 
 export function run(command, args, options = {}) {
-  return spawnSync(command, args, {
-    cwd: options.cwd,
-    env: options.env,
-    encoding: "utf8",
-    input: options.input,
-    shell: options.shell ?? (process.platform === "win32" && !path.isAbsolute(command)),
-    windowsHide: true
-  });
+  try {
+    const result = Bun.spawnSync([command, ...args], {
+      cwd: options.cwd,
+      env: options.env,
+      stdin: options.input == null ? undefined : new TextEncoder().encode(options.input),
+      stdout: "pipe",
+      stderr: "pipe"
+    });
+    return {
+      status: result.exitCode,
+      signal: result.signalCode ?? null,
+      stdout: result.stdout.toString(),
+      stderr: result.stderr.toString(),
+      error: null
+    };
+  } catch (error) {
+    return {
+      status: 0,
+      signal: null,
+      stdout: "",
+      stderr: "",
+      error
+    };
+  }
 }
 
 export function initGitRepo(cwd) {

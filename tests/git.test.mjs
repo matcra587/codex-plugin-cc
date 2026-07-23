@@ -1,7 +1,6 @@
-import fs from "node:fs";
-import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
+import { fs, path } from "../plugins/codex/scripts/lib/platform.mjs";
+import { test } from "bun:test";
+import { assert } from "./assertions.mjs";
 
 import { collectReviewContext, resolveReviewTarget } from "../plugins/codex/scripts/lib/git.mjs";
 import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
@@ -40,12 +39,11 @@ test("resolveReviewTarget falls back to branch diff when repo is clean", () => {
 
 test("default branch names with special characters are passed to git literally", () => {
   const cwd = makeTempDir();
-  const branchName = "main&branch-helper&x";
+  const branchName = "main;touch${IFS}branch-helper-output;x";
   const helperOutputPath = path.join(cwd, "branch-helper-output");
   initGitRepo(cwd);
-  fs.writeFileSync(path.join(cwd, "branch-helper.cmd"), "@echo branch-helper>branch-helper-output\r\n");
   fs.writeFileSync(path.join(cwd, "app.js"), "console.log('base');\n");
-  run("git", ["add", "app.js", "branch-helper.cmd"], { cwd });
+  run("git", ["add", "app.js"], { cwd });
   run("git", ["commit", "-m", "base"], { cwd });
   run("git", ["branch", "-m", branchName], { cwd, shell: false });
   run("git", ["update-ref", `refs/remotes/origin/${branchName}`, branchName], { cwd, shell: false });
@@ -119,12 +117,14 @@ test("collectReviewContext skips untracked directories in working tree review", 
   const cwd = makeTempDir();
   initGitRepo(cwd);
   fs.writeFileSync(path.join(cwd, "app.js"), "console.log('v1');\n");
-  run("git", ["add", "app.js"], { cwd });
+  fs.writeFileSync(path.join(cwd, ".gitignore"), "!.claude/\n!.claude/**\n");
+  run("git", ["add", "app.js", ".gitignore"], { cwd });
   run("git", ["commit", "-m", "init"], { cwd });
 
   const nestedRepoDir = path.join(cwd, ".claude", "worktrees", "agent-test");
   fs.mkdirSync(nestedRepoDir, { recursive: true });
   initGitRepo(nestedRepoDir);
+  fs.writeFileSync(path.join(nestedRepoDir, "README.md"), "nested worktree\n");
 
   const target = resolveReviewTarget(cwd, { scope: "working-tree" });
   const context = collectReviewContext(cwd, target);

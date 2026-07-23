@@ -1,7 +1,6 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
-import fs from "node:fs";
-import process from "node:process";
+import { fs } from "./lib/platform.mjs";
 
 import { terminateProcessTree } from "./lib/process.mjs";
 import { BROKER_ENDPOINT_ENV } from "./lib/app-server.mjs";

@@ -1,5 +1,4 @@
-import fs from "node:fs";
-import process from "node:process";
+import { fs } from "./platform.mjs";
 
 import { readJobFile, resolveJobFile, resolveJobLogFile, upsertJob, writeJobFile } from "./state.mjs";
 

@@ -1,5 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
+import { fs, path } from "./platform.mjs";
 
 export function loadPromptTemplate(rootDir, name) {
   const promptPath = path.join(rootDir, "prompts", `${name}.md`);

@@ -1,17 +1,43 @@
-import fs from "node:fs";
-import path from "node:path";
-import process from "node:process";
+import { fs, path } from "../plugins/codex/scripts/lib/platform.mjs";
 
 import { writeExecutable } from "./helpers.mjs";
+
+const PLATFORM_MODULE = new URL("../plugins/codex/scripts/lib/platform.mjs", import.meta.url).href;
 
 export function installFakeCodex(binDir, behavior = "review-ok") {
   const statePath = path.join(binDir, "fake-codex-state.json");
   const scriptPath = path.join(binDir, "codex");
-  const source = `#!/usr/bin/env node
-const fs = require("node:fs");
-const crypto = require("node:crypto");
-const path = require("node:path");
-const readline = require("node:readline");
+  const source = `#!/usr/bin/env bun
+import { fs, path } from ${JSON.stringify(PLATFORM_MODULE)};
+
+const readline = {
+  createInterface() {
+    return {
+      on(event, handler) {
+        if (event !== "line") return;
+        void (async () => {
+          const reader = Bun.stdin.stream().getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            buffer += decoder.decode(value, { stream: !done });
+            let newline = buffer.indexOf("\\n");
+            while (newline !== -1) {
+              handler(buffer.slice(0, newline));
+              buffer = buffer.slice(newline + 1);
+              newline = buffer.indexOf("\\n");
+            }
+            if (done) {
+              if (buffer) handler(buffer);
+              return;
+            }
+          }
+        })();
+      }
+    };
+  }
+};
 
 	const STATE_PATH = ${JSON.stringify(statePath)};
 	const BEHAVIOR = ${JSON.stringify(behavior)};
@@ -369,7 +395,7 @@ rl.on("line", (line) => {
         }
         const sourcePath = fs.realpathSync(session.path);
         const contents = fs.readFileSync(sourcePath, "utf8");
-        const contentSha256 = crypto.createHash("sha256").update(contents).digest("hex");
+        const contentSha256 = new Bun.CryptoHasher("sha256").update(contents).digest("hex");
         const ledger = loadImportLedger();
         let record = ledger.records.find(
           (candidate) => candidate.source_path === sourcePath && candidate.content_sha256 === contentSha256
@@ -641,18 +667,11 @@ rl.on("line", (line) => {
 `;
   writeExecutable(scriptPath, source);
 
-  // On Windows, npm global binaries are invoked via .cmd wrappers.
-  // Create a codex.cmd so the fake binary is discoverable by spawn with shell: true.
-  if (process.platform === "win32") {
-    const cmdWrapper = `@echo off\r\nnode "%~dp0codex" %*\r\n`;
-    fs.writeFileSync(path.join(binDir, "codex.cmd"), cmdWrapper, { encoding: "utf8" });
-  }
 }
 
 export function buildEnv(binDir) {
-  const sep = process.platform === "win32" ? ";" : ":";
   return {
     ...process.env,
-    PATH: `${binDir}${sep}${process.env.PATH}`
+    PATH: `${binDir}:${process.env.PATH}`
   };
 }

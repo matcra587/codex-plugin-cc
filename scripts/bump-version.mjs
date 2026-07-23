@@ -1,7 +1,5 @@
-#!/usr/bin/env node
-import fs from "node:fs";
-import path from "node:path";
-import process from "node:process";
+#!/usr/bin/env bun
+import { fs, path } from "../plugins/codex/scripts/lib/platform.mjs";
 
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
@@ -14,26 +12,6 @@ const TARGETS = [
         get: (json) => json.version,
         set: (json, version) => {
           json.version = version;
-        }
-      }
-    ]
-  },
-  {
-    file: "package-lock.json",
-    values: [
-      {
-        label: "version",
-        get: (json) => json.version,
-        set: (json, version) => {
-          json.version = version;
-        }
-      },
-      {
-        label: "packages[\"\"].version",
-        get: (json) => json.packages?.[""]?.version,
-        set: (json, version) => {
-          requireObject(json.packages?.[""], "package-lock.json packages[\"\"]");
-          json.packages[""].version = version;
         }
       }
     ]
@@ -75,8 +53,8 @@ const TARGETS = [
 function usage() {
   return [
     "Usage:",
-    "  node scripts/bump-version.mjs <version>",
-    "  node scripts/bump-version.mjs --check [version]",
+    "  bun scripts/bump-version.mjs <version>",
+    "  bun scripts/bump-version.mjs --check [version]",
     "",
     "Options:",
     "  --check       Verify manifest versions. Uses package.json when version is omitted.",

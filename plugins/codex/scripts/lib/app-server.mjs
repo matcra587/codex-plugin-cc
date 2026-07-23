@@ -7,14 +7,10 @@
  * @typedef {import("./app-server-protocol").CodexAppServerClientOptions} CodexAppServerClientOptions
  * @typedef {import("./app-server-protocol").InitializeCapabilities} InitializeCapabilities
  */
-import fs from "node:fs";
-import net from "node:net";
-import process from "node:process";
-import { spawn } from "node:child_process";
-import readline from "node:readline";
+import { fs } from "./platform.mjs";
+
 import { parseBrokerEndpoint } from "./broker-endpoint.mjs";
 import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.mjs";
-import { terminateProcessTree } from "./process.mjs";
 
 const PLUGIN_MANIFEST_URL = new URL("../../.claude-plugin/plugin.json", import.meta.url);
 const PLUGIN_MANIFEST = JSON.parse(fs.readFileSync(PLUGIN_MANIFEST_URL, "utf8"));
@@ -52,6 +48,22 @@ function createProtocolError(message, data) {
     error.rpcCode = data.code;
   }
   return error;
+}
+
+async function consumeStream(stream, onChunk) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      const tail = decoder.decode();
+      if (tail) {
+        onChunk(tail);
+      }
+      return;
+    }
+    onChunk(decoder.decode(value, { stream: true }));
+  }
 }
 
 class AppServerClientBase {
@@ -187,39 +199,34 @@ class SpawnedCodexAppServerClient extends AppServerClientBase {
   }
 
   async initialize() {
-    this.proc = spawn("codex", ["app-server"], {
+    this.proc = Bun.spawn(["codex", "app-server"], {
       cwd: this.cwd,
       env: this.options.env ?? process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: process.platform === "win32" ? (process.env.SHELL || true) : false,
-      windowsHide: true
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe"
     });
 
-    this.proc.stdout.setEncoding("utf8");
-    this.proc.stderr.setEncoding("utf8");
-
-    this.proc.stderr.on("data", (chunk) => {
+    void consumeStream(this.proc.stdout, (chunk) => {
+      this.handleChunk(chunk);
+    }).catch((error) => {
+      this.handleExit(error);
+    });
+    void consumeStream(this.proc.stderr, (chunk) => {
       this.stderr += chunk;
-    });
-
-    this.proc.on("error", (error) => {
+    }).catch((error) => {
       this.handleExit(error);
     });
 
-    this.proc.on("exit", (code, signal) => {
+    void this.proc.exited.then((code) => {
       const stderr = this.stderr.trim();
       const detail =
         code === 0
           ? null
           : createProtocolError(
-              `codex app-server exited unexpectedly (${signal ? `signal ${signal}` : `exit ${code}`}).${stderr ? `\n${stderr}` : ""}`
+              `codex app-server exited unexpectedly (${this.proc.signalCode ? `signal ${this.proc.signalCode}` : `exit ${code}`}).${stderr ? `\n${stderr}` : ""}`
             );
       this.handleExit(detail);
-    });
-
-    this.readline = readline.createInterface({ input: this.proc.stdout });
-    this.readline.on("line", (line) => {
-      this.handleLine(line);
     });
 
     await this.request("initialize", {
@@ -237,27 +244,11 @@ class SpawnedCodexAppServerClient extends AppServerClientBase {
 
     this.closed = true;
 
-    if (this.readline) {
-      this.readline.close();
-    }
-
-    if (this.proc && !this.proc.killed) {
+    if (this.proc && this.proc.exitCode === null) {
       this.proc.stdin.end();
       setTimeout(() => {
-        if (this.proc && !this.proc.killed && this.proc.exitCode === null) {
-          // On Windows with shell: true, the direct child is cmd.exe.
-          // Use terminateProcessTree to kill the entire tree including
-          // the grandchild node process.
-          if (process.platform === "win32") {
-            try {
-              terminateProcessTree(this.proc.pid);
-            } catch {
-              // Best-effort cleanup inside an unref'd timer — swallow errors
-              // to avoid crashing the host process during shutdown.
-            }
-          } else {
-            this.proc.kill("SIGTERM");
-          }
+        if (this.proc && this.proc.exitCode === null) {
+          this.proc.kill("SIGTERM");
         }
       }, 50).unref?.();
     }
@@ -272,6 +263,7 @@ class SpawnedCodexAppServerClient extends AppServerClientBase {
       throw new Error("codex app-server stdin is not available.");
     }
     stdin.write(line);
+    stdin.flush();
   }
 }
 
@@ -283,22 +275,33 @@ class BrokerCodexAppServerClient extends AppServerClientBase {
   }
 
   async initialize() {
-    await new Promise((resolve, reject) => {
-      const target = parseBrokerEndpoint(this.endpoint);
-      this.socket = net.createConnection({ path: target.path });
-      this.socket.setEncoding("utf8");
-      this.socket.on("connect", resolve);
-      this.socket.on("data", (chunk) => {
-        this.handleChunk(chunk);
-      });
-      this.socket.on("error", (error) => {
-        if (!this.exitResolved) {
-          reject(error);
+    const target = parseBrokerEndpoint(this.endpoint);
+    const client = this;
+    const decoder = new TextDecoder();
+    this.socket = await new Promise((resolve, reject) => {
+      Bun.connect({
+        unix: target.path,
+        data: client,
+        socket: {
+          open(socket) {
+            resolve(socket);
+          },
+          data(_socket, chunk) {
+            client.handleChunk(decoder.decode(chunk, { stream: true }));
+          },
+          error(_socket, error) {
+            if (!client.exitResolved) {
+              reject(error);
+            }
+            client.handleExit(error);
+          },
+          close() {
+            client.handleExit(client.exitError);
+          }
         }
-        this.handleExit(error);
-      });
-      this.socket.on("close", () => {
-        this.handleExit(this.exitError);
+      }).catch((error) => {
+        reject(error);
+        client.handleExit(error);
       });
     });
 

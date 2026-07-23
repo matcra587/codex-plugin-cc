@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { fs } from "./platform.mjs";
 
 import { getSessionRuntimeStatus } from "./codex.mjs";
 import { getConfig, listJobs, readJobFile, resolveJobFile } from "./state.mjs";
@@ -101,7 +101,7 @@ function formatElapsedDuration(startValue, endValue = null) {
 }
 
 function looksLikeVerificationCommand(line) {
-  return /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i.test(
+  return /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|bun test|pytest|cargo test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i.test(
     line
   );
 }

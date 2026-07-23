@@ -1,12 +1,10 @@
-import fs from "node:fs";
-import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
+import { fs, path } from "../plugins/codex/scripts/lib/platform.mjs";
+import { test } from "bun:test";
+import { assert } from "./assertions.mjs";
 
 import { makeTempDir, run } from "./helpers.mjs";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = path.resolve(path.dirname(Bun.fileURLToPath(import.meta.url)), "..");
 const SCRIPT = path.join(ROOT, "scripts", "bump-version.mjs");
 
 function writeJson(filePath, json) {
@@ -24,17 +22,6 @@ function makeVersionFixture() {
   writeJson(path.join(root, "package.json"), {
     name: "@openai/codex-plugin-cc",
     version: "1.0.2"
-  });
-  writeJson(path.join(root, "package-lock.json"), {
-    name: "@openai/codex-plugin-cc",
-    version: "1.0.2",
-    lockfileVersion: 3,
-    packages: {
-      "": {
-        name: "@openai/codex-plugin-cc",
-        version: "1.0.2"
-      }
-    }
   });
   writeJson(path.join(root, "plugins", "codex", ".claude-plugin", "plugin.json"), {
     name: "codex",
@@ -58,14 +45,12 @@ function makeVersionFixture() {
 test("bump-version updates every release manifest", () => {
   const root = makeVersionFixture();
 
-  const result = run("node", [SCRIPT, "--root", root, "1.2.3"], {
+  const result = run("bun", [SCRIPT, "--root", root, "1.2.3"], {
     cwd: ROOT
   });
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readJson(path.join(root, "package.json")).version, "1.2.3");
-  assert.equal(readJson(path.join(root, "package-lock.json")).version, "1.2.3");
-  assert.equal(readJson(path.join(root, "package-lock.json")).packages[""].version, "1.2.3");
   assert.equal(readJson(path.join(root, "plugins", "codex", ".claude-plugin", "plugin.json")).version, "1.2.3");
   assert.equal(readJson(path.join(root, ".claude-plugin", "marketplace.json")).metadata.version, "1.2.3");
   assert.equal(readJson(path.join(root, ".claude-plugin", "marketplace.json")).plugins[0].version, "1.2.3");
@@ -78,7 +63,7 @@ test("bump-version check mode reports stale metadata", () => {
     version: "1.0.3"
   });
 
-  const result = run("node", [SCRIPT, "--root", root, "--check"], {
+  const result = run("bun", [SCRIPT, "--root", root, "--check"], {
     cwd: ROOT
   });
 

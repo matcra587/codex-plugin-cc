@@ -1,5 +1,5 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test } from "bun:test";
+import { assert } from "./assertions.mjs";
 
 import { renderReviewResult, renderStoredJobResult } from "../plugins/codex/scripts/lib/render.mjs";
 

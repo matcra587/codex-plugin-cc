@@ -1,5 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
+import { fs, path } from "./platform.mjs";
 
 import { isProbablyText } from "./fs.mjs";
 import { formatCommandFailure, runCommand, runCommandChecked } from "./process.mjs";
@@ -8,7 +7,7 @@ const MAX_UNTRACKED_BYTES = 24 * 1024;
 const DEFAULT_INLINE_DIFF_MAX_FILES = 2;
 const DEFAULT_INLINE_DIFF_MAX_BYTES = 256 * 1024;
 
-// Git is directly executable on Windows. Repository-derived arguments must never pass through a shell.
+// Repository-derived arguments must never pass through a shell.
 function git(cwd, args, options = {}) {
   return runCommand("git", args, { cwd, ...options, shell: false });
 }
@@ -39,7 +38,7 @@ function normalizeMaxInlineDiffBytes(value) {
 
 function measureGitOutputBytes(cwd, args, maxBytes) {
   const result = git(cwd, args, { maxBuffer: maxBytes + 1 });
-  if (result.error && /** @type {NodeJS.ErrnoException} */ (result.error).code === "ENOBUFS") {
+  if (result.error && result.error.code === "ENOBUFS") {
     return maxBytes + 1;
   }
   if (result.error) {
@@ -48,7 +47,7 @@ function measureGitOutputBytes(cwd, args, maxBytes) {
   if (result.status !== 0) {
     throw new Error(formatCommandFailure(result));
   }
-  return Buffer.byteLength(result.stdout, "utf8");
+  return new TextEncoder().encode(result.stdout).byteLength;
 }
 
 function measureCombinedGitOutputBytes(cwd, argSets, maxBytes) {
@@ -205,9 +204,6 @@ function formatUntrackedFile(cwd, relativePath) {
   if (stat.isDirectory()) {
     return `### ${relativePath}\n(skipped: directory)`;
   }
-  if (stat.size > MAX_UNTRACKED_BYTES) {
-    return `### ${relativePath}\n(skipped: ${stat.size} bytes exceeds ${MAX_UNTRACKED_BYTES} byte limit)`;
-  }
 
   let buffer;
   try {
@@ -215,11 +211,14 @@ function formatUntrackedFile(cwd, relativePath) {
   } catch {
     return `### ${relativePath}\n(skipped: broken symlink or unreadable file)`;
   }
+  if (buffer.byteLength > MAX_UNTRACKED_BYTES) {
+    return `### ${relativePath}\n(skipped: ${buffer.byteLength} bytes exceeds ${MAX_UNTRACKED_BYTES} byte limit)`;
+  }
   if (!isProbablyText(buffer)) {
     return `### ${relativePath}\n(skipped: binary file)`;
   }
 
-  return [`### ${relativePath}`, "```", buffer.toString("utf8").trimEnd(), "```"].join("\n");
+  return [`### ${relativePath}`, "```", new TextDecoder().decode(buffer).trimEnd(), "```"].join("\n");
 }
 
 function collectWorkingTreeContext(cwd, state, options = {}) {

@@ -1,16 +1,16 @@
 ---
 description: Check whether the local Codex CLI is ready and optionally toggle the stop-time review gate
 argument-hint: '[--enable-review-gate|--disable-review-gate]'
-allowed-tools: Bash(node:*), Bash(npm:*), AskUserQuestion
+allowed-tools: Bash(bun:*), AskUserQuestion
 ---
 
 Run:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" setup --json $ARGUMENTS
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" setup --json $ARGUMENTS
 ```
 
-If the result says Codex is unavailable and npm is available:
+If the result says Codex is unavailable and Bun is available:
 - Use `AskUserQuestion` exactly once to ask whether Claude should install Codex now.
 - Put the install option first and suffix it with `(Recommended)`.
 - Use these two options:
@@ -19,16 +19,16 @@ If the result says Codex is unavailable and npm is available:
 - If the user chooses install, run:
 
 ```bash
-npm install -g @openai/codex
+bun add --global @openai/codex
 ```
 
 - Then rerun:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" setup --json $ARGUMENTS
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" setup --json $ARGUMENTS
 ```
 
-If Codex is already installed or npm is unavailable:
+If Codex is already installed or Bun is unavailable:
 - Do not ask about installation.
 
 Output rules:

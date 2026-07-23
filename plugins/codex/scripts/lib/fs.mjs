@@ -1,6 +1,4 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { fs, os, path } from "./platform.mjs";
 
 export function ensureAbsolutePath(cwd, maybePath) {
   return path.isAbsolute(maybePath) ? maybePath : path.resolve(cwd, maybePath);
