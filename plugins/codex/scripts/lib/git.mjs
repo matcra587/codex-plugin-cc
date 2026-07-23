@@ -7,6 +7,10 @@ const MAX_UNTRACKED_BYTES = 24 * 1024;
 const DEFAULT_INLINE_DIFF_MAX_FILES = 2;
 const DEFAULT_INLINE_DIFF_MAX_BYTES = 256 * 1024;
 
+function hasErrorCode(error, code) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
 // Repository-derived arguments must never pass through a shell.
 function git(cwd, args, options = {}) {
   return runCommand("git", args, { cwd, ...options, shell: false });
@@ -38,7 +42,7 @@ function normalizeMaxInlineDiffBytes(value) {
 
 function measureGitOutputBytes(cwd, args, maxBytes) {
   const result = git(cwd, args, { maxBuffer: maxBytes + 1 });
-  if (result.error && result.error.code === "ENOBUFS") {
+  if (hasErrorCode(result.error, "ENOBUFS")) {
     return maxBytes + 1;
   }
   if (result.error) {
@@ -76,8 +80,7 @@ function buildBranchComparison(cwd, baseRef) {
 
 export function ensureGitRepository(cwd) {
   const result = git(cwd, ["rev-parse", "--show-toplevel"]);
-  const errorCode = result.error && "code" in result.error ? result.error.code : null;
-  if (errorCode === "ENOENT") {
+  if (hasErrorCode(result.error, "ENOENT")) {
     throw new Error("git is not installed. Install Git and retry.");
   }
   if (result.status !== 0) {

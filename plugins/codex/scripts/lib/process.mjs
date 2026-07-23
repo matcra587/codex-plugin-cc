@@ -56,13 +56,17 @@ export function runCommandChecked(command, args = [], options = {}) {
   return result;
 }
 
+function hasErrorCode(error, code) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
 export function binaryAvailable(command, versionArgs = ["--version"], options = {}) {
   const result = runCommand(command, versionArgs, options);
-  if (result.error && result.error.code === "ENOENT") {
+  if (hasErrorCode(result.error, "ENOENT")) {
     return { available: false, detail: "not found" };
   }
   if (result.error) {
-    return { available: false, detail: result.error.message };
+    return { available: false, detail: result.error instanceof Error ? result.error.message : String(result.error) };
   }
   if (result.status !== 0) {
     const detail = result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`;
@@ -82,12 +86,12 @@ export function terminateProcessTree(pid, options = {}) {
     killImpl(-pid, "SIGTERM");
     return { attempted: true, delivered: true, method: "process-group" };
   } catch (error) {
-    if (error?.code !== "ESRCH") {
+    if (!hasErrorCode(error, "ESRCH")) {
       try {
         killImpl(pid, "SIGTERM");
         return { attempted: true, delivered: true, method: "process" };
       } catch (innerError) {
-        if (innerError?.code === "ESRCH") {
+        if (hasErrorCode(innerError, "ESRCH")) {
           return { attempted: true, delivered: false, method: "process" };
         }
         throw innerError;

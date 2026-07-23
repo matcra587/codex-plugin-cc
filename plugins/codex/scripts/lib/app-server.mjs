@@ -67,13 +67,14 @@ async function consumeStream(stream, onChunk) {
 }
 
 class AppServerClientBase {
+  closed = false;
+
   constructor(cwd, options = {}) {
     this.cwd = cwd;
     this.options = options;
     this.pending = new Map();
     this.nextId = 1;
     this.stderr = "";
-    this.closed = false;
     this.exitError = null;
     /** @type {AppServerNotificationHandler | null} */
     this.notificationHandler = null;
@@ -116,6 +117,14 @@ class AppServerClientBase {
     this.sendMessage({ method, params });
   }
 
+  isClosed() {
+    return this.closed;
+  }
+
+  markClosed() {
+    this.closed = true;
+  }
+
   handleChunk(chunk) {
     this.lineBuffer += chunk;
     let newlineIndex = this.lineBuffer.indexOf("\n");
@@ -136,7 +145,8 @@ class AppServerClientBase {
     try {
       message = JSON.parse(line);
     } catch (error) {
-      this.handleExit(createProtocolError(`Failed to parse codex app-server JSONL: ${error.message}`, { line }));
+      const detail = error instanceof Error ? error.message : String(error);
+      this.handleExit(createProtocolError(`Failed to parse codex app-server JSONL: ${detail}`, { line }));
       return;
     }
 
@@ -237,12 +247,12 @@ class SpawnedCodexAppServerClient extends AppServerClientBase {
   }
 
   async close() {
-    if (this.closed) {
+    if (this.isClosed()) {
       await this.exitPromise;
       return;
     }
 
-    this.closed = true;
+    this.markClosed();
 
     if (this.proc && this.proc.exitCode === null) {
       this.proc.stdin.end();
@@ -313,12 +323,12 @@ class BrokerCodexAppServerClient extends AppServerClientBase {
   }
 
   async close() {
-    if (this.closed) {
+    if (this.isClosed()) {
       await this.exitPromise;
       return;
     }
 
-    this.closed = true;
+    this.markClosed();
     if (this.socket) {
       this.socket.end();
     }

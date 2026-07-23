@@ -42,30 +42,28 @@ export async function waitForBrokerEndpoint(endpoint, timeoutMs = 2000) {
 
 export async function sendBrokerShutdown(endpoint) {
   const target = parseBrokerEndpoint(endpoint);
-  await new Promise(async (resolve) => {
-    try {
-      await Bun.connect({
-        unix: target.path,
-        socket: {
-          open(socket) {
-            socket.write(`${JSON.stringify({ id: 1, method: "broker/shutdown", params: {} })}\n`);
-          },
-          data(socket) {
-            socket.end();
-            resolve();
-          },
-          error() {
-            resolve();
-          },
-          close() {
-            resolve();
-          }
+  /** @type {Promise<void>} */
+  const shutdown = new Promise((resolve) => {
+    Bun.connect({
+      unix: target.path,
+      socket: {
+        open(socket) {
+          socket.write(`${JSON.stringify({ id: 1, method: "broker/shutdown", params: {} })}\n`);
+        },
+        data(socket) {
+          socket.end();
+          resolve();
+        },
+        error() {
+          resolve();
+        },
+        close() {
+          resolve();
         }
-      });
-    } catch {
-      resolve();
-    }
+      }
+    }).catch(() => resolve());
   });
+  await shutdown;
 }
 
 export function spawnBrokerProcess({ scriptPath, cwd, endpoint, pidFile, logFile, env = process.env }) {
@@ -183,8 +181,18 @@ export async function ensureBrokerSession(cwd, options = {}) {
   return session;
 }
 
+/**
+ * @param {{
+ *   endpoint?: string | null,
+ *   pidFile?: string | null,
+ *   logFile?: string | null,
+ *   sessionDir?: string | null,
+ *   pid?: number | null,
+ *   killProcess?: ((pid: number) => void) | null
+ * }} session
+ */
 export function teardownBrokerSession({ endpoint = null, pidFile, logFile, sessionDir = null, pid = null, killProcess = null }) {
-  if (Number.isFinite(pid) && killProcess) {
+  if (typeof pid === "number" && Number.isFinite(pid) && killProcess) {
     try {
       killProcess(pid);
     } catch {

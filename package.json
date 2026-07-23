@@ -13,10 +13,10 @@
     "bump-version": "bun scripts/bump-version.mjs",
     "check-version": "bun scripts/bump-version.mjs --check",
     "prebuild": "mkdir -p plugins/codex/.generated/app-server-types && codex app-server generate-ts --out plugins/codex/.generated/app-server-types",
-    "build": "bunx --bun tsc -p tsconfig.app-server.json",
+    "build": "bunx tsc -p tsconfig.app-server.json",
     "test": "bun test"
   },
   "devDependencies": {
-    "typescript": "^6.0.2"
+    "typescript": "^7.0.2"
   }
 }

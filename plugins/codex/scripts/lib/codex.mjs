@@ -48,6 +48,18 @@ const DEFAULT_CONTINUE_PROMPT =
 const EXTERNAL_AGENT_IMPORT_COMPLETED = "externalAgentConfig/import/completed";
 const EXTERNAL_AGENT_IMPORT_TIMEOUT_MS = 2 * 60 * 1000;
 
+function hasErrorCode(error, code) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+function hasRpcCode(error, code) {
+  return error instanceof Error && "rpcCode" in error && error.rpcCode === code;
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function cleanCodexStderr(stderr) {
   return stderr
     .split(/\r?\n/)
@@ -340,6 +352,11 @@ function clearCompletionTimer(state) {
   }
 }
 
+/**
+ * @param {TurnCaptureState} state
+ * @param {Turn | null} [turn]
+ * @param {{ inferred?: boolean }} [options]
+ */
 function completeTurn(state, turn = null, options = {}) {
   if (state.completed) {
     return;
@@ -356,7 +373,13 @@ function completeTurn(state, turn = null, options = {}) {
   } else if (!state.finalTurn) {
     state.finalTurn = {
       id: state.turnId ?? "inferred-turn",
-      status: "completed"
+      items: [],
+      itemsView: "notLoaded",
+      status: "completed",
+      error: null,
+      startedAt: null,
+      completedAt: null,
+      durationMs: null
     };
   }
 
@@ -612,6 +635,7 @@ async function captureTurn(client, threadId, startRequest, options = {}) {
 }
 
 async function withAppServer(cwd, fn) {
+  /** @type {Awaited<ReturnType<typeof CodexAppServerClient.connect>> | null} */
   let client = null;
   try {
     client = await CodexAppServerClient.connect(cwd);
@@ -621,8 +645,8 @@ async function withAppServer(cwd, fn) {
   } catch (error) {
     const brokerRequested = client?.transport === "broker" || Boolean(process.env[BROKER_ENDPOINT_ENV]);
     const shouldRetryDirect =
-      (client?.transport === "broker" && error?.rpcCode === BROKER_BUSY_RPC_CODE) ||
-      (brokerRequested && (error?.code === "ENOENT" || error?.code === "ECONNREFUSED"));
+      (client?.transport === "broker" && hasRpcCode(error, BROKER_BUSY_RPC_CODE)) ||
+      (brokerRequested && (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ECONNREFUSED")));
 
     if (client) {
       await client.close().catch(() => {});
@@ -739,7 +763,7 @@ async function startThread(client, cwd, options = {}) {
     } catch (err) {
       // Only suppress "unknown variant/method" errors from older CLI versions
       // that don't support thread/name/set. Rethrow auth, network, or server errors.
-      const msg = String(err?.message ?? err ?? "");
+      const msg = errorMessage(err);
       if (!msg.includes("unknown variant") && !msg.includes("unknown method")) {
         throw err;
       }
@@ -767,6 +791,10 @@ function normalizeProviderId(value) {
   return providerId || null;
 }
 
+/**
+ * @param {string | null} providerId
+ * @param {{ name?: unknown } | null} [providerConfig]
+ */
 function formatProviderLabel(providerId, providerConfig = null) {
   const configuredName = typeof providerConfig?.name === "string" ? providerConfig.name.trim() : "";
   if (configuredName) {
@@ -938,6 +966,7 @@ export async function getCodexAuthStatus(cwd, options = {}) {
     };
   }
 
+  /** @type {Awaited<ReturnType<typeof CodexAppServerClient.connect>> | null} */
   let client = null;
   try {
     client = await CodexAppServerClient.connect(cwd, {
@@ -978,6 +1007,7 @@ export async function interruptAppServerTurn(cwd, { threadId, turnId }) {
     };
   }
 
+  /** @type {Awaited<ReturnType<typeof CodexAppServerClient.connect>> | null} */
   let client = null;
   try {
     client = await CodexAppServerClient.connect(cwd, { reuseExistingBroker: true });
@@ -1070,7 +1100,7 @@ export async function importExternalAgentSession(cwd, options = {}) {
     try {
       await requestExternalAgentSessionImport(client, externalAgentSessionMigration(options.sourcePath, cwd));
     } catch (error) {
-      if (error?.rpcCode === -32601) {
+      if (hasRpcCode(error, -32601)) {
         throw new Error(
           "This Codex version does not support Claude session transfer. Update Codex with `bun add --global @openai/codex@latest`, then retry.",
           { cause: error }
@@ -1206,7 +1236,7 @@ export function parseStructuredOutput(rawOutput, fallback = {}) {
   } catch (error) {
     return {
       parsed: null,
-      parseError: error.message,
+      parseError: errorMessage(error),
       rawOutput,
       ...fallback
     };
