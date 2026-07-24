@@ -6,6 +6,7 @@ import type { JobRecord } from "../plugins/codex/scripts/lib/domain.ts";
 import { makeTempDir } from "./helpers.ts";
 import {
   ensureStateDir,
+  listJobs,
   loadState,
   resolveJobFile,
   resolveJobLogFile,
@@ -13,6 +14,9 @@ import {
   resolveStateFile,
   saveState
 } from "../plugins/codex/scripts/lib/state.ts";
+
+const ROOT = path.resolve(path.dirname(Bun.fileURLToPath(import.meta.url)), "..");
+const STATE_WRITER_FIXTURE = path.join(ROOT, "tests", "state-writer-fixture.ts");
 
 test("resolveStateDir uses a user-private fallback outside the shared temp directory", () => {
   const workspace = makeTempDir();
@@ -213,4 +217,123 @@ test("loadState rejects persisted job paths outside the private jobs directory",
   assert.deepEqual(loadState(workspace).jobs, []);
   saveState(workspace, loadState(workspace));
   assert.equal(fs.existsSync(unrelatedFile), true);
+});
+
+test("loadState fails closed when an existing state file is corrupt", () => {
+  const workspace = makeTempDir();
+  const stateFile = resolveStateFile(workspace);
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  fs.writeFileSync(stateFile, "{", "utf8");
+
+  assert.throws(() => loadState(workspace), /Unable to load persisted state/);
+});
+
+test("concurrent state writers retain every job", async () => {
+  const workspace = makeTempDir();
+  const writers = Array.from({ length: 16 }, (_, index) =>
+    Bun.spawn([process.execPath, STATE_WRITER_FIXTURE, workspace, `concurrent-${index}`], {
+      env: process.env,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe"
+    })
+  );
+
+  const statuses = await Promise.all(writers.map((writer) => writer.exited));
+  assert.deepEqual(statuses, Array.from({ length: writers.length }, () => 0));
+  assert.deepEqual(
+    listJobs(workspace)
+      .map((job) => job.id)
+      .sort(),
+    Array.from({ length: writers.length }, (_, index) => `concurrent-${index}`).sort()
+  );
+});
+
+test("listJobs marks a running job failed when its worker process is gone", () => {
+  const workspace = makeTempDir();
+  const stateFile = resolveStateFile(workspace);
+  const jobFile = resolveJobFile(workspace, "dead-worker");
+  const deadPid = 99_999_999;
+  const job = {
+    id: "dead-worker",
+    status: "running",
+    pid: deadPid,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:01.000Z"
+  };
+  fs.writeFileSync(jobFile, `${JSON.stringify(job)}\n`, "utf8");
+  fs.writeFileSync(
+    stateFile,
+    `${JSON.stringify({
+      version: 1,
+      config: { stopReviewGate: true },
+      jobs: [job]
+    })}\n`,
+    "utf8"
+  );
+
+  const [reconciled] = listJobs(workspace);
+  assert.equal(reconciled?.status, "failed");
+  assert.equal(reconciled?.pid, null);
+  assert.match(reconciled?.errorMessage ?? "", /worker process is no longer running/i);
+
+  const storedJob = JSON.parse(fs.readFileSync(jobFile, "utf8"));
+  assert.equal(storedJob.status, "failed");
+  assert.equal(storedJob.pid, null);
+  assert.equal(loadState(workspace).config.stopReviewGate, true);
+});
+
+test("listJobs adopts a terminal job file when its worker process is gone", () => {
+  const workspace = makeTempDir();
+  const stateFile = resolveStateFile(workspace);
+  const jobFile = resolveJobFile(workspace, "finished-worker");
+  const indexedJob = {
+    id: "finished-worker",
+    status: "running",
+    pid: 99_999_999,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:01.000Z"
+  };
+  const completedJob = {
+    ...indexedJob,
+    status: "completed",
+    phase: "done",
+    pid: null,
+    completedAt: "2026-01-01T00:00:02.000Z",
+    result: { answer: 42 }
+  };
+  fs.writeFileSync(jobFile, `${JSON.stringify(completedJob)}\n`, "utf8");
+  fs.writeFileSync(
+    stateFile,
+    `${JSON.stringify({
+      version: 1,
+      config: { stopReviewGate: false },
+      jobs: [indexedJob]
+    })}\n`,
+    "utf8"
+  );
+
+  const [reconciled] = listJobs(workspace);
+  assert.equal(reconciled?.status, "completed");
+  assert.equal(reconciled?.pid, null);
+  assert.deepEqual(reconciled?.result, { answer: 42 });
+});
+
+test("listJobs leaves a running job alone while its worker process is alive", () => {
+  const workspace = makeTempDir();
+  saveState(workspace, {
+    version: 1,
+    config: { stopReviewGate: false },
+    jobs: [
+      {
+        id: "live-worker",
+        status: "running",
+        pid: process.pid
+      }
+    ]
+  });
+
+  const [job] = listJobs(workspace);
+  assert.equal(job?.status, "running");
+  assert.equal(job?.pid, process.pid);
 });

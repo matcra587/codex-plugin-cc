@@ -12,7 +12,7 @@ import {
   sendBrokerShutdown,
   teardownBrokerSession
 } from "./lib/broker-lifecycle.ts";
-import { loadState, resolveStateFile, saveState } from "./lib/state.ts";
+import { resolveStateFile, updateState } from "./lib/state.ts";
 import { TRANSCRIPT_PATH_ENV } from "./lib/claude-session-transfer.ts";
 import { resolveWorkspaceRoot } from "./lib/workspace.ts";
 import { isRecord } from "./lib/validation.ts";
@@ -71,28 +71,26 @@ function cleanupSessionJobs(cwd: string | undefined, sessionId: string | undefin
     return;
   }
 
-  const state = loadState(workspaceRoot);
-  const removedJobs = state.jobs.filter((job) => job.sessionId === sessionId);
-  if (removedJobs.length === 0) {
-    return;
-  }
+  const runningPids: number[] = [];
+  updateState(workspaceRoot, (state) => {
+    state.jobs = state.jobs.filter((job) => {
+      if (job.sessionId !== sessionId) {
+        return true;
+      }
+      if ((job.status === "queued" || job.status === "running") && job.pid != null) {
+        runningPids.push(job.pid);
+      }
+      return false;
+    });
+  });
 
-  for (const job of removedJobs) {
-    const stillRunning = job.status === "queued" || job.status === "running";
-    if (!stillRunning) {
-      continue;
-    }
+  for (const pid of runningPids) {
     try {
-      terminateProcessTree(job.pid ?? Number.NaN);
+      terminateProcessTree(pid);
     } catch {
       // Ignore teardown failures during session shutdown.
     }
   }
-
-  saveState(workspaceRoot, {
-    ...state,
-    jobs: state.jobs.filter((job) => job.sessionId !== sessionId)
-  });
 }
 
 function handleSessionStart(input: SessionHookInput): void {

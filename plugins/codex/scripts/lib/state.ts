@@ -1,6 +1,7 @@
 import { fs, os, path } from "./platform.ts";
 
 import { isJobRecord, type CompanionConfig, type CompanionState, type JobPatch, type JobRecord } from "./domain.ts";
+import { isProcessAlive } from "./process.ts";
 import { isRecord } from "./validation.ts";
 import { resolveWorkspaceRoot } from "./workspace.ts";
 
@@ -9,11 +10,14 @@ const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
 const XDG_STATE_HOME_ENV = "XDG_STATE_HOME";
 const FALLBACK_STATE_DIR_NAME = "codex-plugin-cc";
 const STATE_FILE_NAME = "state.json";
+const STATE_LOCK_FILE_NAME = ".state.lock";
 const JOBS_DIR_NAME = "jobs";
 const MAX_JOBS = 50;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 const SAFE_JOB_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+const LOCK_RETRY_INTERVAL_MS = 10;
+const LOCK_TIMEOUT_MS = 5_000;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -63,6 +67,10 @@ export function ensureStateDir(cwd: string): void {
   fs.mkdirSync(resolveJobsDir(cwd), { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
 }
 
+function resolveStateLockFile(cwd: string): string {
+  return path.join(resolveStateDir(cwd), STATE_LOCK_FILE_NAME);
+}
+
 function isSafeJobId(jobId: string): boolean {
   return SAFE_JOB_ID_PATTERN.test(jobId) && jobId !== "." && jobId !== "..";
 }
@@ -93,29 +101,31 @@ export function loadState(cwd: string): CompanionState {
     return defaultState();
   }
 
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-    if (!isRecord(parsed)) {
-      return defaultState();
-    }
-    const parsedConfig = isRecord(parsed.config) ? parsed.config : {};
-    const config = {
-      ...parsedConfig,
-      stopReviewGate:
-        typeof parsedConfig.stopReviewGate === "boolean"
-          ? parsedConfig.stopReviewGate
-          : defaultState().config.stopReviewGate
-    } satisfies CompanionConfig;
-    return {
-      version: typeof parsed.version === "number" ? parsed.version : STATE_VERSION,
-      config,
-      jobs: Array.isArray(parsed.jobs)
-        ? parsed.jobs.filter((job) => isPersistedJobRecord(cwd, job))
-        : []
-    };
-  } catch {
-    return defaultState();
+    parsed = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  } catch (cause) {
+    throw new Error(`Unable to load persisted state from ${stateFile}.`, { cause });
   }
+
+  if (!isRecord(parsed)) {
+    throw new Error(`Unable to load persisted state from ${stateFile}: expected a JSON object.`);
+  }
+  const parsedConfig = isRecord(parsed.config) ? parsed.config : {};
+  const config = {
+    ...parsedConfig,
+    stopReviewGate:
+      typeof parsedConfig.stopReviewGate === "boolean"
+        ? parsedConfig.stopReviewGate
+        : defaultState().config.stopReviewGate
+  } satisfies CompanionConfig;
+  return {
+    version: typeof parsed.version === "number" ? parsed.version : STATE_VERSION,
+    config,
+    jobs: Array.isArray(parsed.jobs)
+      ? parsed.jobs.filter((job) => isPersistedJobRecord(cwd, job))
+      : []
+  };
 }
 
 function pruneJobs(jobs: readonly JobRecord[]): JobRecord[] {
@@ -125,13 +135,57 @@ function pruneJobs(jobs: readonly JobRecord[]): JobRecord[] {
 }
 
 function removeFileIfExists(filePath: string | null | undefined): void {
-  if (filePath && fs.existsSync(filePath)) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return;
+  }
+  try {
     fs.unlinkSync(filePath);
+  } catch (error) {
+    if (fs.existsSync(filePath)) {
+      throw error;
+    }
   }
 }
 
-export function saveState(cwd: string, state: CompanionState): CompanionState {
-  const previousJobs = loadState(cwd).jobs;
+function writeJsonAtomic(filePath: string, value: unknown): void {
+  const temporaryFile = `${filePath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    fs.writeFileSync(temporaryFile, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: PRIVATE_FILE_MODE
+    });
+    fs.renameSync(temporaryFile, filePath);
+  } finally {
+    removeFileIfExists(temporaryFile);
+  }
+}
+
+function withStateLock<Result>(cwd: string, action: () => Result): Result {
+  ensureStateDir(cwd);
+  const lockFile = resolveStateLockFile(cwd);
+  const startedAt = Date.now();
+
+  let releaseLock = fs.acquireFileLockSync(lockFile, PRIVATE_FILE_MODE);
+  while (releaseLock == null) {
+    if (Date.now() - startedAt >= LOCK_TIMEOUT_MS) {
+      throw new Error(`Timed out waiting for state lock ${lockFile}.`);
+    }
+    Bun.sleepSync(LOCK_RETRY_INTERVAL_MS);
+    releaseLock = fs.acquireFileLockSync(lockFile, PRIVATE_FILE_MODE);
+  }
+
+  try {
+    return action();
+  } finally {
+    releaseLock();
+  }
+}
+
+function saveStateUnlocked(
+  cwd: string,
+  state: CompanionState,
+  previousJobs: readonly JobRecord[]
+): CompanionState {
   ensureStateDir(cwd);
   const nextJobs = pruneJobs((state.jobs ?? []).filter((job) => isPersistedJobRecord(cwd, job)));
   const nextState = {
@@ -152,17 +206,43 @@ export function saveState(cwd: string, state: CompanionState): CompanionState {
     removeFileIfExists(job.logFile);
   }
 
-  fs.writeFileSync(resolveStateFile(cwd), `${JSON.stringify(nextState, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: PRIVATE_FILE_MODE
-  });
+  writeJsonAtomic(resolveStateFile(cwd), nextState);
   return nextState;
 }
 
+function readTerminalJobFile(cwd: string, job: JobRecord): JobRecord | null {
+  const jobFile = resolveJobFile(cwd, job.id);
+  if (!fs.existsSync(jobFile)) {
+    return null;
+  }
+
+  try {
+    const storedJob = readJobFile(jobFile);
+    const isTerminal =
+      storedJob.status === "completed" ||
+      storedJob.status === "failed" ||
+      storedJob.status === "cancelled";
+    return storedJob.id === job.id && isTerminal && isPersistedJobRecord(cwd, storedJob)
+      ? storedJob
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveState(cwd: string, state: CompanionState): CompanionState {
+  return withStateLock(cwd, () =>
+    saveStateUnlocked(cwd, state, loadState(cwd).jobs)
+  );
+}
+
 export function updateState(cwd: string, mutate: (state: CompanionState) => void): CompanionState {
-  const state = loadState(cwd);
-  mutate(state);
-  return saveState(cwd, state);
+  return withStateLock(cwd, () => {
+    const state = loadState(cwd);
+    const previousJobs = [...state.jobs];
+    mutate(state);
+    return saveStateUnlocked(cwd, state, previousJobs);
+  });
 }
 
 export function generateJobId(prefix = "job"): string {
@@ -191,7 +271,41 @@ export function upsertJob(cwd: string, jobPatch: JobPatch): CompanionState {
 }
 
 export function listJobs(cwd: string): JobRecord[] {
-  return loadState(cwd).jobs;
+  return withStateLock(cwd, () => {
+    const state = loadState(cwd);
+    const timestamp = nowIso();
+    let changed = false;
+
+    for (const job of state.jobs) {
+      const isActive = job.status === "queued" || job.status === "running";
+      if (!isActive || job.pid == null || isProcessAlive(job.pid)) {
+        continue;
+      }
+
+      const terminalJob = readTerminalJobFile(cwd, job);
+      if (terminalJob) {
+        Object.assign(job, terminalJob, { pid: null });
+        changed = true;
+        continue;
+      }
+
+      Object.assign(job, {
+        status: "failed",
+        phase: "failed",
+        pid: null,
+        completedAt: timestamp,
+        updatedAt: timestamp,
+        errorMessage: "Worker process is no longer running."
+      } satisfies Partial<JobRecord>);
+      const jobFile = resolveJobFile(cwd, job.id);
+      if (fs.existsSync(jobFile)) {
+        writeJsonAtomic(jobFile, job);
+      }
+      changed = true;
+    }
+
+    return changed ? saveStateUnlocked(cwd, state, state.jobs).jobs : state.jobs;
+  });
 }
 
 export function setConfig<Key extends keyof CompanionConfig>(
@@ -217,10 +331,7 @@ export function writeJobFile(cwd: string, jobId: string, payload: unknown): stri
   }
   ensureStateDir(cwd);
   const jobFile = resolveJobFile(cwd, jobId);
-  fs.writeFileSync(jobFile, `${JSON.stringify(payload, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: PRIVATE_FILE_MODE
-  });
+  writeJsonAtomic(jobFile, payload);
   return jobFile;
 }
 

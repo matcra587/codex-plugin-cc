@@ -13,11 +13,14 @@ if (!isDarwin && process.platform !== "linux") {
 const OPEN_CREATE = isDarwin ? 0x200 : 0x40;
 const OPEN_TRUNCATE = isDarwin ? 0x400 : 0x200;
 const OPEN_APPEND = isDarwin ? 0x8 : 0x400;
+const LOCK_EXCLUSIVE_NON_BLOCKING = 2 | 4;
+const LOCK_UN = 8;
 const libc = dlopen(isDarwin ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
   access: { args: [FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
   chmod: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
   close: { args: [FFIType.i32], returns: FFIType.i32 },
   closedir: { args: [FFIType.ptr], returns: FFIType.i32 },
+  flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
   free: { args: [FFIType.ptr], returns: FFIType.void },
   mkdir: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
   mkdtemp: { args: [FFIType.ptr], returns: FFIType.ptr },
@@ -25,6 +28,7 @@ const libc = dlopen(isDarwin ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
   opendir: { args: [FFIType.ptr], returns: FFIType.ptr },
   read: { args: [FFIType.i32, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
   realpath: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr },
+  rename: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
   rmdir: { args: [FFIType.ptr], returns: FFIType.i32 },
   symlink: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
   unlink: { args: [FFIType.ptr], returns: FFIType.i32 },
@@ -217,6 +221,32 @@ function writeFileSync(file: PathLike, data: FileData, options: WriteFileOptions
   }
 }
 
+function acquireFileLockSync(file: PathLike, mode = 0o600): (() => void) | null {
+  const filePath = resolve(asPath(file));
+  const descriptor = callPath(libc.symbols.open, filePath, 1 | OPEN_CREATE, mode);
+  if (descriptor < 0) {
+    throw new Error(`Unable to open lock file ${asPath(file)}`);
+  }
+  if (callPath(libc.symbols.chmod, filePath, mode) !== 0) {
+    libc.symbols.close(descriptor);
+    throw new Error(`Unable to change mode for ${asPath(file)}`);
+  }
+  if (libc.symbols.flock(descriptor, LOCK_EXCLUSIVE_NON_BLOCKING) !== 0) {
+    libc.symbols.close(descriptor);
+    return null;
+  }
+
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    libc.symbols.flock(descriptor, LOCK_UN);
+    libc.symbols.close(descriptor);
+  };
+}
+
 function appendFileSync(file: PathLike, data: FileData, _encoding?: string) {
   const descriptor = openFile(file, 1 | OPEN_CREATE | OPEN_APPEND);
   try {
@@ -318,7 +348,16 @@ function removeFile(file: PathLike) {
   }
 }
 
+function renameSync(source: PathLike, destination: PathLike): void {
+  const sourceBytes = cString(resolve(asPath(source)));
+  const destinationBytes = cString(resolve(asPath(destination)));
+  if (libc.symbols.rename(ptr(sourceBytes), ptr(destinationBytes)) !== 0) {
+    throw new Error(`Unable to rename ${asPath(source)} to ${asPath(destination)}`);
+  }
+}
+
 export const fs = {
+  acquireFileLockSync,
   appendFileSync,
   existsSync,
   mkdirSync,
@@ -326,6 +365,7 @@ export const fs = {
   readFileSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmdirSync: removeDirectory,
   statSync,
   symlinkSync: createSymlink,

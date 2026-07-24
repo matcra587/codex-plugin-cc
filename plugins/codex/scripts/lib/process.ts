@@ -96,6 +96,28 @@ export function binaryAvailable(command: string, versionArgs = ["--version"], op
   return { available: true, detail: result.stdout.trim() || result.stderr.trim() || "ok" };
 }
 
+export function isProcessAlive(
+  pid: number,
+  killImpl: (pid: number, signal: number) => void = process.kill.bind(process)
+): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    killImpl(pid, 0);
+    return true;
+  } catch (error) {
+    if (hasErrorCode(error, "EPERM")) {
+      return true;
+    }
+    if (hasErrorCode(error, "ESRCH")) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export function terminateProcessTree(
   pid: number,
   options: { killImpl?: (pid: number, signal: string) => void } = {}
