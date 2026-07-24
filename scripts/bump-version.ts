@@ -3,6 +3,31 @@ import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";
 
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
+type JsonPrimitive = string | number | boolean | null;
+type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+
+interface JsonObject {
+  [key: string]: JsonValue | undefined;
+}
+
+interface VersionValue {
+  label: string;
+  get(json: JsonObject): JsonValue | undefined;
+  set(json: JsonObject, version: string): void;
+}
+
+interface VersionTarget {
+  file: string;
+  values: VersionValue[];
+}
+
+interface CliOptions {
+  check: boolean;
+  root: string;
+  version: string | null;
+  help?: boolean;
+}
+
 const TARGETS = [
   {
     file: "package.json",
@@ -33,7 +58,12 @@ const TARGETS = [
     values: [
       {
         label: "metadata.version",
-        get: (json) => json.metadata?.version,
+        get: (json) => {
+          const metadata = json.metadata;
+          return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+            ? metadata.version
+            : undefined;
+        },
         set: (json, version) => {
           requireObject(json.metadata, ".claude-plugin/marketplace.json metadata");
           json.metadata.version = version;
@@ -48,9 +78,9 @@ const TARGETS = [
       }
     ]
   }
-];
+] satisfies VersionTarget[];
 
-function usage() {
+function usage(): string {
   return [
     "Usage:",
     "  bun scripts/bump-version.ts <version>",
@@ -63,8 +93,8 @@ function usage() {
   ].join("\n");
 }
 
-function parseArgs(argv) {
-  const options: { check: boolean; root: string; version: string | null; help?: boolean } = {
+function parseArgs(argv: string[]): CliOptions {
+  const options: CliOptions = {
     check: false,
     root: process.cwd(),
     version: null
@@ -72,6 +102,9 @@ function parseArgs(argv) {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+    if (arg === undefined) {
+      continue;
+    }
 
     if (arg === "--check") {
       options.check = true;
@@ -97,35 +130,44 @@ function parseArgs(argv) {
   return options;
 }
 
-function validateVersion(version) {
+function validateVersion(version: string): void {
   if (!VERSION_PATTERN.test(version)) {
     throw new Error(`Expected a semver-like version such as 1.0.3, got: ${version}`);
   }
 }
 
-function requireObject(value, label) {
+function requireObject(value: unknown, label: string): asserts value is JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`Expected ${label} to be an object.`);
   }
 }
 
-function findMarketplacePlugin(json) {
-  const plugin = json.plugins?.find((entry) => entry?.name === "codex");
+function findMarketplacePlugin(json: JsonObject): JsonObject {
+  const plugins = json.plugins;
+  if (!Array.isArray(plugins)) {
+    throw new Error("Expected .claude-plugin/marketplace.json plugins to be an array.");
+  }
+  const plugin = plugins.find(
+    (entry): entry is JsonObject =>
+      entry !== null && typeof entry === "object" && !Array.isArray(entry) && entry.name === "codex"
+  );
   requireObject(plugin, ".claude-plugin/marketplace.json plugins[codex]");
   return plugin;
 }
 
-function readJson(root, file) {
+function readJson(root: string, file: string): JsonObject {
   const filePath = path.join(root, file);
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  const parsed: unknown = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  requireObject(parsed, file);
+  return parsed;
 }
 
-function writeJson(root, file, json) {
+function writeJson(root: string, file: string, json: JsonObject): void {
   const filePath = path.join(root, file);
   fs.writeFileSync(filePath, `${JSON.stringify(json, null, 2)}\n`);
 }
 
-function readPackageVersion(root) {
+function readPackageVersion(root: string): string {
   const packageJson = readJson(root, "package.json");
   if (typeof packageJson.version !== "string") {
     throw new Error("package.json version must be a string.");
@@ -134,7 +176,7 @@ function readPackageVersion(root) {
   return packageJson.version;
 }
 
-function checkVersions(root, expectedVersion) {
+function checkVersions(root: string, expectedVersion: string): string[] {
   const mismatches: string[] = [];
 
   for (const target of TARGETS) {
@@ -150,7 +192,7 @@ function checkVersions(root, expectedVersion) {
   return mismatches;
 }
 
-function bumpVersion(root, version) {
+function bumpVersion(root: string, version: string): string[] {
   const changedFiles: string[] = [];
 
   for (const target of TARGETS) {
@@ -170,14 +212,17 @@ function bumpVersion(root, version) {
   return changedFiles;
 }
 
-function main() {
+function main(): void {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
     console.log(usage());
     return;
   }
 
-  const version = options.version ?? (options.check ? readPackageVersion(options.root) : null);
+  let version = options.version;
+  if (version === null && options.check) {
+    version = readPackageVersion(options.root);
+  }
   if (!version) {
     throw new Error(`Missing version.\n\n${usage()}`);
   }

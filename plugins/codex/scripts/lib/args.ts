@@ -1,19 +1,39 @@
-interface ParseArgsConfig {
-  valueOptions?: string[];
-  booleanOptions?: string[];
+export interface ParseArgsConfig<ValueOption extends string = string, BooleanOption extends string = string> {
+  valueOptions?: readonly ValueOption[];
+  booleanOptions?: readonly BooleanOption[];
   aliasMap?: Record<string, string>;
 }
 
-export function parseArgs(argv: string[], config: ParseArgsConfig = {}) {
-  const valueOptions = new Set(config.valueOptions ?? []);
-  const booleanOptions = new Set(config.booleanOptions ?? []);
+export type ParsedOption = string | boolean;
+export type ParsedOptions<
+  ValueOption extends string = never,
+  BooleanOption extends string = never
+> = Partial<Record<ValueOption, string>> &
+  Partial<Record<BooleanOption, boolean>> &
+  Record<string, ParsedOption | undefined>;
+export type AnyParsedOptions = Record<string, ParsedOption | undefined>;
+
+export interface ParsedArguments<ValueOption extends string = string, BooleanOption extends string = string> {
+  options: ParsedOptions<ValueOption, BooleanOption>;
+  positionals: string[];
+}
+
+export function parseArgs<const ValueOption extends string = never, const BooleanOption extends string = never>(
+  argv: string[],
+  config: ParseArgsConfig<ValueOption, BooleanOption> = {}
+): ParsedArguments<ValueOption, BooleanOption> {
+  const valueOptions = new Set<string>(config.valueOptions ?? []);
+  const booleanOptions = new Set<string>(config.booleanOptions ?? []);
   const aliasMap = config.aliasMap ?? {};
-  const options: Record<string, any> = {};
+  const options: AnyParsedOptions = {};
   const positionals: string[] = [];
   let passthrough = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
+    if (token === undefined) {
+      continue;
+    }
 
     if (passthrough) {
       positionals.push(token);
@@ -31,7 +51,7 @@ export function parseArgs(argv: string[], config: ParseArgsConfig = {}) {
     }
 
     if (token.startsWith("--")) {
-      const [rawKey, inlineValue] = token.slice(2).split("=", 2);
+      const [rawKey = "", inlineValue] = token.slice(2).split("=", 2);
       const key = aliasMap[rawKey] ?? rawKey;
 
       if (booleanOptions.has(key)) {
@@ -76,7 +96,10 @@ export function parseArgs(argv: string[], config: ParseArgsConfig = {}) {
     positionals.push(token);
   }
 
-  return { options, positionals };
+  return {
+    options: options as ParsedOptions<ValueOption, BooleanOption>,
+    positionals
+  };
 }
 
 export function splitRawArgumentString(raw: string): string[] {

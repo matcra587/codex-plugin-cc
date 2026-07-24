@@ -15,30 +15,52 @@ import {
 import { loadState, resolveStateFile, saveState } from "./lib/state.ts";
 import { TRANSCRIPT_PATH_ENV } from "./lib/claude-session-transfer.ts";
 import { resolveWorkspaceRoot } from "./lib/workspace.ts";
+import { isRecord } from "./lib/validation.ts";
 
 export const SESSION_ID_ENV = "CODEX_COMPANION_SESSION_ID";
 const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
 
-function readHookInput() {
+interface SessionHookInput {
+  cwd?: string | undefined;
+  hook_event_name?: string | undefined;
+  session_id?: string | undefined;
+  transcript_path?: string | undefined;
+}
+
+function optionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readHookInput(): SessionHookInput {
   const raw = fs.readFileSync(0, "utf8").trim();
   if (!raw) {
     return {};
   }
-  return JSON.parse(raw);
+  const parsed: unknown = JSON.parse(raw);
+  if (!isRecord(parsed)) {
+    return {};
+  }
+  return {
+    cwd: optionalString(parsed, "cwd"),
+    hook_event_name: optionalString(parsed, "hook_event_name"),
+    session_id: optionalString(parsed, "session_id"),
+    transcript_path: optionalString(parsed, "transcript_path")
+  };
 }
 
-function shellEscape(value) {
+function shellEscape(value: unknown): string {
   return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
 }
 
-function appendEnvVar(name, value) {
+function appendEnvVar(name: string, value: unknown): void {
   if (!process.env.CLAUDE_ENV_FILE || value == null || value === "") {
     return;
   }
   fs.appendFileSync(process.env.CLAUDE_ENV_FILE, `export ${name}=${shellEscape(value)}\n`, "utf8");
 }
 
-function cleanupSessionJobs(cwd, sessionId) {
+function cleanupSessionJobs(cwd: string | undefined, sessionId: string | undefined): void {
   if (!cwd || !sessionId) {
     return;
   }
@@ -73,13 +95,13 @@ function cleanupSessionJobs(cwd, sessionId) {
   });
 }
 
-function handleSessionStart(input) {
+function handleSessionStart(input: SessionHookInput): void {
   appendEnvVar(SESSION_ID_ENV, input.session_id);
   appendEnvVar(TRANSCRIPT_PATH_ENV, input.transcript_path);
   appendEnvVar(PLUGIN_DATA_ENV, process.env[PLUGIN_DATA_ENV]);
 }
 
-async function handleSessionEnd(input) {
+async function handleSessionEnd(input: SessionHookInput): Promise<void> {
   const cwd = input.cwd || process.cwd();
   const brokerSession =
     loadBrokerSession(cwd) ??
@@ -114,7 +136,7 @@ async function handleSessionEnd(input) {
   clearBrokerSession(cwd);
 }
 
-async function main() {
+async function main(): Promise<void> {
   const input = readHookInput();
   const eventName = process.argv[2] ?? input.hook_event_name ?? "";
 

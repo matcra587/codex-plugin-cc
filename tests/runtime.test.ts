@@ -29,12 +29,15 @@ afterEach(() => {
   cleanupProcessGroups.clear();
 });
 
-async function waitFor(predicate, { timeoutMs = 5000, intervalMs = 50 } = {}) {
+async function waitFor<Value>(
+  predicate: () => Value | Promise<Value>,
+  { timeoutMs = 5000, intervalMs = 50 }: { timeoutMs?: number; intervalMs?: number } = {}
+): Promise<NonNullable<Value>> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const value = await predicate();
     if (value) {
-      return value;
+      return value as NonNullable<Value>;
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
@@ -252,7 +255,7 @@ test("transfer delegates the current Claude session directly to native import", 
   assert.equal(fakeState.threads[0].name, "Native transfer");
   assert.equal(fakeState.lastExternalAgentImport.sourcePath, canonicalSourcePath);
   assert.deepEqual(
-    fakeState.threads[0].visibleMessages.map((message) => message.text),
+    fakeState.threads[0].visibleMessages.map((message: { text: string }) => message.text),
     ["Initial request", "Initial answer", "/codex:transfer"]
   );
 });
@@ -1629,7 +1632,7 @@ test("cancel stops an active background job and marks it cancelled", async () =>
   });
 
   const state = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8"));
-  const cancelled = state.jobs.find((job) => job.id === "task-live");
+  const cancelled = state.jobs.find((job: { id: string }) => job.id === "task-live");
   assert.equal(cancelled.status, "cancelled");
   assert.equal(cancelled.pid, null);
 
@@ -1765,7 +1768,7 @@ test("cancel sends turn interrupt to the shared app-server before killing a brok
   const stateDir = resolveStateDir(repo);
   const runningJob = await waitFor(() => {
     const state = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8"));
-    const job = state.jobs.find((candidate) => candidate.id === jobId);
+    const job = state.jobs.find((candidate: { id: string; status?: string; threadId?: string; turnId?: string }) => candidate.id === jobId);
     if (job?.status === "running" && job.threadId && job.turnId) {
       return job;
     }
@@ -1913,7 +1916,7 @@ test("session end fully cleans up jobs for the ending session", async () => {
   });
 
   const state = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8"));
-  assert.deepEqual(state.jobs.map((job) => job.id), ["review-other"]);
+  assert.deepEqual(state.jobs.map((job: { id: string }) => job.id), ["review-other"]);
   const otherJob = state.jobs[0];
   assert.equal(otherJob.logFile, otherSessionLog);
 });

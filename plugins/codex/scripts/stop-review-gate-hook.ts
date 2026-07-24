@@ -7,33 +7,57 @@ import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.ts";
 import { getConfig, listJobs } from "./lib/state.ts";
 import { sortJobsNewestFirst } from "./lib/job-control.ts";
 import { SESSION_ID_ENV } from "./lib/tracked-jobs.ts";
+import { isRecord } from "./lib/validation.ts";
 import { resolveWorkspaceRoot } from "./lib/workspace.ts";
+import type { JobRecord } from "./lib/domain.ts";
 
 const STOP_REVIEW_TIMEOUT_MS = 15 * 60 * 1000;
 const SCRIPT_DIR = path.dirname(Bun.fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
-const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
+interface StopHookInput {
+  cwd?: string | undefined;
+  last_assistant_message?: string | undefined;
+  session_id?: string | undefined;
+}
 
-function readHookInput(): any {
+interface StopReviewResult {
+  ok: boolean;
+  reason: string | null;
+}
+
+function optionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readHookInput(): StopHookInput {
   const raw = fs.readFileSync(0, "utf8").trim();
   if (!raw) {
     return {};
   }
-  return JSON.parse(raw);
+  const parsed: unknown = JSON.parse(raw);
+  if (!isRecord(parsed)) {
+    return {};
+  }
+  return {
+    cwd: optionalString(parsed, "cwd"),
+    last_assistant_message: optionalString(parsed, "last_assistant_message"),
+    session_id: optionalString(parsed, "session_id")
+  };
 }
 
-function emitDecision(payload) {
+function emitDecision(payload: { decision: "block"; reason: string }): void {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
-function logNote(message) {
+function logNote(message: string | null): void {
   if (!message) {
     return;
   }
   process.stderr.write(`${message}\n`);
 }
 
-function filterJobsForCurrentSession(jobs, input: Record<string, any> = {}) {
+function filterJobsForCurrentSession(jobs: JobRecord[], input: StopHookInput = {}): JobRecord[] {
   const sessionId = input.session_id || process.env[SESSION_ID_ENV] || null;
   if (!sessionId) {
     return jobs;
@@ -41,7 +65,7 @@ function filterJobsForCurrentSession(jobs, input: Record<string, any> = {}) {
   return jobs.filter((job) => job.sessionId === sessionId);
 }
 
-function buildStopReviewPrompt(input: Record<string, any> = {}) {
+function buildStopReviewPrompt(input: StopHookInput = {}): string {
   const lastAssistantMessage = String(input.last_assistant_message ?? "").trim();
   const template = loadPromptTemplate(ROOT_DIR, "stop-review-gate");
   const claudeResponseBlock = lastAssistantMessage
@@ -52,7 +76,7 @@ function buildStopReviewPrompt(input: Record<string, any> = {}) {
   });
 }
 
-function buildSetupNote(cwd) {
+function buildSetupNote(cwd: string): string | null {
   const availability = getCodexAvailability(cwd);
   if (availability.available) {
     return null;
@@ -62,7 +86,7 @@ function buildSetupNote(cwd) {
   return `Codex is not set up for the review gate.${detail} Run /codex:setup.`;
 }
 
-function parseStopReviewOutput(rawOutput) {
+function parseStopReviewOutput(rawOutput: unknown): StopReviewResult {
   const text = String(rawOutput ?? "").trim();
   if (!text) {
     return {
@@ -72,7 +96,7 @@ function parseStopReviewOutput(rawOutput) {
     };
   }
 
-  const firstLine = text.split(/\r?\n/, 1)[0].trim();
+  const firstLine = text.split(/\r?\n/, 1)[0]?.trim() ?? "";
   if (firstLine.startsWith("ALLOW:")) {
     return { ok: true, reason: null };
   }
@@ -91,7 +115,7 @@ function parseStopReviewOutput(rawOutput) {
   };
 }
 
-function runStopReview(cwd, input: Record<string, any> = {}) {
+function runStopReview(cwd: string, input: StopHookInput = {}): StopReviewResult {
   const scriptPath = path.join(SCRIPT_DIR, "codex-companion.ts");
   const prompt = buildStopReviewPrompt(input);
   const childEnv = {
@@ -125,8 +149,12 @@ function runStopReview(cwd, input: Record<string, any> = {}) {
   }
 
   try {
-    const payload = JSON.parse(result.stdout.toString());
-    return parseStopReviewOutput(payload?.rawOutput);
+    const payload: unknown = JSON.parse(result.stdout.toString());
+    const rawOutput =
+      payload && typeof payload === "object" && "rawOutput" in payload
+        ? payload.rawOutput
+        : null;
+    return parseStopReviewOutput(rawOutput);
   } catch {
     return {
       ok: false,
@@ -136,7 +164,7 @@ function runStopReview(cwd, input: Record<string, any> = {}) {
   }
 }
 
-function main() {
+function main(): void {
   const input = readHookInput();
   const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const workspaceRoot = resolveWorkspaceRoot(cwd);
@@ -164,7 +192,9 @@ function main() {
   if (!review.ok) {
     emitDecision({
       decision: "block",
-      reason: runningTaskNote ? `${runningTaskNote} ${review.reason}` : review.reason
+      reason: runningTaskNote
+        ? `${runningTaskNote} ${review.reason ?? "The stop-time review did not pass."}`
+        : review.reason ?? "The stop-time review did not pass."
     });
     return;
   }

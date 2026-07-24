@@ -5,7 +5,7 @@ import { assert } from "./assertions.ts";
 const ROOT = path.resolve(path.dirname(Bun.fileURLToPath(import.meta.url)), "..");
 const PLUGIN_ROOT = path.join(ROOT, "plugins", "codex");
 
-function read(relativePath) {
+function read(relativePath: string): string {
   return fs.readFileSync(path.join(PLUGIN_ROOT, relativePath), "utf8");
 }
 

@@ -18,12 +18,12 @@ export interface CommandResult {
 }
 
 export function runCommand(command: string, args: string[] = [], options: CommandOptions = {}): CommandResult {
-  let result: any;
+  let result: ReturnType<typeof Bun.spawnSync>;
   try {
     const stdio = options.stdio ?? "pipe";
     result = Bun.spawnSync([command, ...args], {
-      cwd: options.cwd,
-      env: options.env,
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      ...(options.env === undefined ? {} : { env: options.env }),
       stdin:
         options.input == null
           ? stdio === "ignore"
@@ -51,7 +51,7 @@ export function runCommand(command: string, args: string[] = [], options: Comman
   const exceededBuffer =
     typeof maxBuffer === "number" &&
     Number.isFinite(maxBuffer) &&
-    (result.stdout?.byteLength > maxBuffer || result.stderr?.byteLength > maxBuffer);
+    ((result.stdout?.byteLength ?? 0) > maxBuffer || (result.stderr?.byteLength ?? 0) > maxBuffer);
 
   return {
     command,

@@ -1,6 +1,7 @@
 import { fs } from "./platform.ts";
 
 import { getSessionRuntimeStatus } from "./codex.ts";
+import type { EnvironmentOptions, JobRecord } from "./domain.ts";
 import { getConfig, listJobs, readJobFile, resolveJobFile } from "./state.ts";
 import { SESSION_ID_ENV } from "./tracked-jobs.ts";
 import { resolveWorkspaceRoot } from "./workspace.ts";
@@ -8,23 +9,40 @@ import { resolveWorkspaceRoot } from "./workspace.ts";
 export const DEFAULT_MAX_STATUS_JOBS = 8;
 export const DEFAULT_MAX_PROGRESS_LINES = 4;
 
-export function sortJobsNewestFirst(jobs: any[]): any[] {
+interface JobQueryOptions extends EnvironmentOptions {
+  all?: boolean | undefined;
+  maxJobs?: number;
+  maxProgressLines?: number | undefined;
+}
+
+export interface EnrichedJob extends JobRecord {
+  kindLabel: string;
+  progressPreview: string[];
+  elapsed: string | null;
+  duration: string | null;
+  phase: string;
+}
+
+export function sortJobsNewestFirst<Job extends JobRecord>(jobs: readonly Job[]): Job[] {
   return [...jobs].sort((left, right) => String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? "")));
 }
 
-function getCurrentSessionId(options: Record<string, any> = {}) {
+function getCurrentSessionId(options: EnvironmentOptions = {}): string | null {
   return options.env?.[SESSION_ID_ENV] ?? process.env[SESSION_ID_ENV] ?? null;
 }
 
-function filterJobsForCurrentSession(jobs: any[], options: Record<string, any> = {}): any[] {
+function filterJobsForCurrentSession<Job extends JobRecord>(
+  jobs: readonly Job[],
+  options: EnvironmentOptions = {}
+): Job[] {
   const sessionId = getCurrentSessionId(options);
   if (!sessionId) {
-    return jobs;
+    return [...jobs];
   }
   return jobs.filter((job) => job.sessionId === sessionId);
 }
 
-function getJobTypeLabel(job) {
+function getJobTypeLabel(job: JobRecord): string {
   if (typeof job.kindLabel === "string" && job.kindLabel) {
     return job.kindLabel;
   }
@@ -46,11 +64,11 @@ function getJobTypeLabel(job) {
   return "job";
 }
 
-function stripLogPrefix(line) {
+function stripLogPrefix(line: string): string {
   return line.replace(/^\[[^\]]+\]\s*/, "").trim();
 }
 
-function isProgressBlockTitle(line) {
+function isProgressBlockTitle(line: string): boolean {
   return (
     ["Final output", "Assistant message", "Reasoning summary", "Review output"].includes(line) ||
     /^Subagent .+ message$/.test(line) ||
@@ -58,7 +76,10 @@ function isProgressBlockTitle(line) {
   );
 }
 
-export function readJobProgressPreview(logFile, maxLines = DEFAULT_MAX_PROGRESS_LINES): string[] {
+export function readJobProgressPreview(
+  logFile: string | null | undefined,
+  maxLines = DEFAULT_MAX_PROGRESS_LINES
+): string[] {
   if (!logFile || !fs.existsSync(logFile)) {
     return [];
   }
@@ -75,7 +96,10 @@ export function readJobProgressPreview(logFile, maxLines = DEFAULT_MAX_PROGRESS_
   return lines.slice(-maxLines);
 }
 
-function formatElapsedDuration(startValue, endValue = null) {
+function formatElapsedDuration(
+  startValue: string | null | undefined,
+  endValue: string | null = null
+): string | null {
   const start = Date.parse(startValue ?? "");
   if (!Number.isFinite(start)) {
     return null;
@@ -100,13 +124,13 @@ function formatElapsedDuration(startValue, endValue = null) {
   return `${seconds}s`;
 }
 
-function looksLikeVerificationCommand(line) {
+function looksLikeVerificationCommand(line: string): boolean {
   return /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|bun test|pytest|cargo test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i.test(
     line
   );
 }
 
-function inferLegacyJobPhase(job, progressPreview: string[] = []) {
+function inferLegacyJobPhase(job: JobRecord, progressPreview: string[] = []): string {
   switch (job.status) {
     case "queued":
       return "queued";
@@ -121,7 +145,10 @@ function inferLegacyJobPhase(job, progressPreview: string[] = []) {
   }
 
   for (let index = progressPreview.length - 1; index >= 0; index -= 1) {
-    const line = progressPreview[index].toLowerCase();
+    const line = progressPreview[index]?.toLowerCase();
+    if (!line) {
+      continue;
+    }
     if (line.startsWith("starting codex") || line.startsWith("thread ready") || line.startsWith("turn started")) {
       return "starting";
     }
@@ -135,11 +162,10 @@ function inferLegacyJobPhase(job, progressPreview: string[] = []) {
       return "investigating";
     }
     if (line.startsWith("running command:")) {
-      return looksLikeVerificationCommand(line)
-        ? "verifying"
-        : job.jobClass === "review"
-          ? "reviewing"
-          : "investigating";
+      if (looksLikeVerificationCommand(line)) {
+        return "verifying";
+      }
+      return job.jobClass === "review" ? "reviewing" : "investigating";
     }
     if (line.startsWith("command completed:")) {
       return looksLikeVerificationCommand(line) ? "verifying" : "running";
@@ -158,7 +184,10 @@ function inferLegacyJobPhase(job, progressPreview: string[] = []) {
   return job.jobClass === "review" ? "reviewing" : "running";
 }
 
-export function enrichJob(job, options: Record<string, any> = {}) {
+export function enrichJob(
+  job: JobRecord,
+  options: { maxProgressLines?: number | undefined } = {}
+): EnrichedJob {
   const maxProgressLines = options.maxProgressLines ?? DEFAULT_MAX_PROGRESS_LINES;
   const enriched = {
     ...job,
@@ -180,7 +209,7 @@ export function enrichJob(job, options: Record<string, any> = {}) {
   };
 }
 
-export function readStoredJob(workspaceRoot, jobId) {
+export function readStoredJob(workspaceRoot: string, jobId: string): JobRecord | null {
   const jobFile = resolveJobFile(workspaceRoot, jobId);
   if (!fs.existsSync(jobFile)) {
     return null;
@@ -188,11 +217,11 @@ export function readStoredJob(workspaceRoot, jobId) {
   return readJobFile(jobFile);
 }
 
-function matchJobReference(
-  jobs: any[],
+function matchJobReference<Job extends JobRecord>(
+  jobs: readonly Job[],
   reference: string | null | undefined,
-  predicate: (job: any) => boolean = () => true
-) {
+  predicate: (job: Job) => boolean = () => true
+): Job | null {
   const filtered = jobs.filter(predicate);
   if (!reference) {
     return filtered[0] ?? null;
@@ -205,7 +234,7 @@ function matchJobReference(
 
   const prefixMatches = filtered.filter((job) => job.id.startsWith(reference));
   if (prefixMatches.length === 1) {
-    return prefixMatches[0];
+    return prefixMatches[0] ?? null;
   }
   if (prefixMatches.length > 1) {
     throw new Error(`Job reference "${reference}" is ambiguous. Use a longer job id.`);
@@ -214,7 +243,7 @@ function matchJobReference(
   throw new Error(`No job found for "${reference}". Run /codex:status to list known jobs.`);
 }
 
-export function buildStatusSnapshot(cwd, options: Record<string, any> = {}) {
+export function buildStatusSnapshot(cwd: string, options: JobQueryOptions = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const config = getConfig(workspaceRoot);
   const jobs = sortJobsNewestFirst(filterJobsForCurrentSession(listJobs(workspaceRoot), options));
@@ -243,7 +272,11 @@ export function buildStatusSnapshot(cwd, options: Record<string, any> = {}) {
   };
 }
 
-export function buildSingleJobSnapshot(cwd, reference, options: Record<string, any> = {}) {
+export function buildSingleJobSnapshot(
+  cwd: string,
+  reference: string | null | undefined,
+  options: { maxProgressLines?: number } = {}
+) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobs = sortJobsNewestFirst(listJobs(workspaceRoot));
   const selected = matchJobReference(jobs, reference);
@@ -257,7 +290,7 @@ export function buildSingleJobSnapshot(cwd, reference, options: Record<string, a
   };
 }
 
-export function resolveResultJob(cwd, reference) {
+export function resolveResultJob(cwd: string, reference?: string | null) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobs = sortJobsNewestFirst(reference ? listJobs(workspaceRoot) : filterJobsForCurrentSession(listJobs(workspaceRoot)));
   const selected = matchJobReference(
@@ -282,7 +315,11 @@ export function resolveResultJob(cwd, reference) {
   throw new Error("No finished Codex jobs found for this repository yet.");
 }
 
-export function resolveCancelableJob(cwd, reference, options: Record<string, any> = {}) {
+export function resolveCancelableJob(
+  cwd: string,
+  reference?: string | null,
+  options: EnvironmentOptions = {}
+) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobs = sortJobsNewestFirst(listJobs(workspaceRoot));
   const activeJobs = jobs.filter((job) => job.status === "queued" || job.status === "running");
@@ -297,8 +334,9 @@ export function resolveCancelableJob(cwd, reference, options: Record<string, any
 
   const sessionScopedActiveJobs = filterJobsForCurrentSession(activeJobs, options);
 
-  if (sessionScopedActiveJobs.length === 1) {
-    return { workspaceRoot, job: sessionScopedActiveJobs[0] };
+  const [onlyJob] = sessionScopedActiveJobs;
+  if (onlyJob && sessionScopedActiveJobs.length === 1) {
+    return { workspaceRoot, job: onlyJob };
   }
   if (sessionScopedActiveJobs.length > 1) {
     throw new Error("Multiple Codex jobs are active. Pass a job id to /codex:cancel.");

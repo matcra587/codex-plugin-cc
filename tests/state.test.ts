@@ -2,8 +2,16 @@ import { fs, os, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { test } from "bun:test";
 import { assert } from "./assertions.ts";
 
+import type { JobRecord } from "../plugins/codex/scripts/lib/domain.ts";
 import { makeTempDir } from "./helpers.ts";
-import { resolveJobFile, resolveJobLogFile, resolveStateDir, resolveStateFile, saveState } from "../plugins/codex/scripts/lib/state.ts";
+import {
+  loadState,
+  resolveJobFile,
+  resolveJobLogFile,
+  resolveStateDir,
+  resolveStateFile,
+  saveState
+} from "../plugins/codex/scripts/lib/state.ts";
 
 test("resolveStateDir uses a temp-backed per-workspace directory", () => {
   const workspace = makeTempDir();
@@ -43,7 +51,7 @@ test("saveState prunes dropped job artifacts when indexed jobs exceed the cap", 
   const stateFile = resolveStateFile(workspace);
   fs.mkdirSync(path.dirname(stateFile), { recursive: true });
 
-  const jobs = Array.from({ length: 51 }, (_, index) => {
+  const jobs: JobRecord[] = Array.from({ length: 51 }, (_, index) => {
     const jobId = `job-${index}`;
     const updatedAt = new Date(Date.UTC(2026, 0, 1, 0, index, 0)).toISOString();
     const logFile = resolveJobLogFile(workspace, jobId);
@@ -87,11 +95,12 @@ test("saveState prunes dropped job artifacts when indexed jobs exceed the cap", 
 
   assert.equal(fs.existsSync(retainedJobFile), true);
   assert.equal(fs.existsSync(retainedLogFile), true);
+  assert.equal(fs.existsSync(prunedLogFile), false);
 
   const savedState = JSON.parse(fs.readFileSync(stateFile, "utf8"));
   assert.equal(savedState.jobs.length, 50);
   assert.deepEqual(
-    savedState.jobs.map((job) => job.id),
+    savedState.jobs.map((job: JobRecord) => job.id),
     Array.from({ length: 50 }, (_, index) => `job-${50 - index}`)
   );
   assert.deepEqual(
@@ -99,5 +108,29 @@ test("saveState prunes dropped job artifacts when indexed jobs exceed the cap", 
     Array.from({ length: 50 }, (_, index) => `job-${index + 1}`)
       .flatMap((jobId) => [`${jobId}.json`, `${jobId}.log`])
       .sort()
+  );
+});
+
+test("loadState drops malformed persisted jobs", () => {
+  const workspace = makeTempDir();
+  const stateFile = resolveStateFile(workspace);
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  fs.writeFileSync(
+    stateFile,
+    `${JSON.stringify({
+      version: 1,
+      config: { stopReviewGate: false },
+      jobs: [
+        { id: "valid", status: "running", pid: 1234 },
+        { id: "invalid-status", status: "unknown" },
+        { id: "invalid-pid", status: "running", pid: "1234" }
+      ]
+    })}\n`,
+    "utf8"
+  );
+
+  assert.deepEqual(
+    loadState(workspace).jobs.map((job) => job.id),
+    ["valid"]
   );
 });

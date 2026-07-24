@@ -1,5 +1,7 @@
 import { fs, os, path } from "./platform.ts";
 
+import { isJobRecord, type CompanionConfig, type CompanionState, type JobPatch, type JobRecord } from "./domain.ts";
+import { isRecord } from "./validation.ts";
 import { resolveWorkspaceRoot } from "./workspace.ts";
 
 const STATE_VERSION = 1;
@@ -9,11 +11,11 @@ const STATE_FILE_NAME = "state.json";
 const JOBS_DIR_NAME = "jobs";
 const MAX_JOBS = 50;
 
-function nowIso() {
+function nowIso(): string {
   return new Date().toISOString();
 }
 
-function defaultState() {
+function defaultState(): CompanionState {
   return {
     version: STATE_VERSION,
     config: {
@@ -23,7 +25,7 @@ function defaultState() {
   };
 }
 
-export function resolveStateDir(cwd) {
+export function resolveStateDir(cwd: string): string {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   let canonicalWorkspaceRoot = workspaceRoot;
   try {
@@ -40,53 +42,60 @@ export function resolveStateDir(cwd) {
   return path.join(stateRoot, `${slug}-${hash}`);
 }
 
-export function resolveStateFile(cwd) {
+export function resolveStateFile(cwd: string): string {
   return path.join(resolveStateDir(cwd), STATE_FILE_NAME);
 }
 
-export function resolveJobsDir(cwd) {
+export function resolveJobsDir(cwd: string): string {
   return path.join(resolveStateDir(cwd), JOBS_DIR_NAME);
 }
 
-export function ensureStateDir(cwd) {
+export function ensureStateDir(cwd: string): void {
   fs.mkdirSync(resolveJobsDir(cwd), { recursive: true });
 }
 
-export function loadState(cwd) {
+export function loadState(cwd: string): CompanionState {
   const stateFile = resolveStateFile(cwd);
   if (!fs.existsSync(stateFile)) {
     return defaultState();
   }
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    const parsed: unknown = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    if (!isRecord(parsed)) {
+      return defaultState();
+    }
+    const parsedConfig = isRecord(parsed.config) ? parsed.config : {};
+    const config = {
+      ...parsedConfig,
+      stopReviewGate:
+        typeof parsedConfig.stopReviewGate === "boolean"
+          ? parsedConfig.stopReviewGate
+          : defaultState().config.stopReviewGate
+    } satisfies CompanionConfig;
     return {
-      ...defaultState(),
-      ...parsed,
-      config: {
-        ...defaultState().config,
-        ...(parsed.config ?? {})
-      },
-      jobs: Array.isArray(parsed.jobs) ? parsed.jobs : []
+      version: typeof parsed.version === "number" ? parsed.version : STATE_VERSION,
+      config,
+      jobs: Array.isArray(parsed.jobs) ? parsed.jobs.filter(isJobRecord) : []
     };
   } catch {
     return defaultState();
   }
 }
 
-function pruneJobs(jobs) {
+function pruneJobs(jobs: readonly JobRecord[]): JobRecord[] {
   return [...jobs]
     .sort((left, right) => String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? "")))
     .slice(0, MAX_JOBS);
 }
 
-function removeFileIfExists(filePath) {
+function removeFileIfExists(filePath: string | null | undefined): void {
   if (filePath && fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);
   }
 }
 
-export function saveState(cwd, state) {
+export function saveState(cwd: string, state: CompanionState): CompanionState {
   const previousJobs = loadState(cwd).jobs;
   ensureStateDir(cwd);
   const nextJobs = pruneJobs(state.jobs ?? []);
@@ -112,18 +121,18 @@ export function saveState(cwd, state) {
   return nextState;
 }
 
-export function updateState(cwd, mutate) {
+export function updateState(cwd: string, mutate: (state: CompanionState) => void): CompanionState {
   const state = loadState(cwd);
   mutate(state);
   return saveState(cwd, state);
 }
 
-export function generateJobId(prefix = "job") {
+export function generateJobId(prefix = "job"): string {
   const random = Math.random().toString(36).slice(2, 8);
   return `${prefix}-${Date.now().toString(36)}-${random}`;
 }
 
-export function upsertJob(cwd, jobPatch) {
+export function upsertJob(cwd: string, jobPatch: JobPatch): CompanionState {
   return updateState(cwd, (state) => {
     const timestamp = nowIso();
     const existingIndex = state.jobs.findIndex((job) => job.id === jobPatch.id);
@@ -143,11 +152,15 @@ export function upsertJob(cwd, jobPatch) {
   });
 }
 
-export function listJobs(cwd) {
+export function listJobs(cwd: string): JobRecord[] {
   return loadState(cwd).jobs;
 }
 
-export function setConfig(cwd, key, value) {
+export function setConfig<Key extends keyof CompanionConfig>(
+  cwd: string,
+  key: Key,
+  value: CompanionConfig[Key]
+): CompanionState {
   return updateState(cwd, (state) => {
     state.config = {
       ...state.config,
@@ -156,33 +169,37 @@ export function setConfig(cwd, key, value) {
   });
 }
 
-export function getConfig(cwd) {
+export function getConfig(cwd: string): CompanionConfig {
   return loadState(cwd).config;
 }
 
-export function writeJobFile(cwd, jobId, payload) {
+export function writeJobFile(cwd: string, jobId: string, payload: unknown): string {
   ensureStateDir(cwd);
   const jobFile = resolveJobFile(cwd, jobId);
   fs.writeFileSync(jobFile, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   return jobFile;
 }
 
-export function readJobFile(jobFile) {
-  return JSON.parse(fs.readFileSync(jobFile, "utf8"));
+export function readJobFile(jobFile: string): JobRecord {
+  const parsed: unknown = JSON.parse(fs.readFileSync(jobFile, "utf8"));
+  if (!isJobRecord(parsed)) {
+    throw new Error(`Expected ${jobFile} to contain a job record.`);
+  }
+  return parsed;
 }
 
-function removeJobFile(jobFile) {
+function removeJobFile(jobFile: string): void {
   if (fs.existsSync(jobFile)) {
     fs.unlinkSync(jobFile);
   }
 }
 
-export function resolveJobLogFile(cwd, jobId) {
+export function resolveJobLogFile(cwd: string, jobId: string): string {
   ensureStateDir(cwd);
   return path.join(resolveJobsDir(cwd), `${jobId}.log`);
 }
 
-export function resolveJobFile(cwd, jobId) {
+export function resolveJobFile(cwd: string, jobId: string): string {
   ensureStateDir(cwd);
   return path.join(resolveJobsDir(cwd), `${jobId}.json`);
 }

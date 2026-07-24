@@ -2,6 +2,7 @@ import { fs } from "./platform.ts";
 
 import { parseBrokerEndpoint } from "./broker-endpoint.ts";
 import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.ts";
+import { isJsonRpcMessage, type JsonRpcMessage } from "./json-rpc.ts";
 import type {
   AppServerMethod,
   AppServerNotification,
@@ -13,15 +14,31 @@ import type {
   InitializeCapabilities
 } from "./app-server-protocol";
 
-type ProtocolError = Error & { data?: unknown; rpcCode?: number };
-type PendingRequest = {
+class ProtocolError extends Error {
+  data?: unknown;
+  rpcCode?: number;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ProtocolError";
+  }
+}
+
+interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
   method: AppServerMethod;
-};
+}
 
 const PLUGIN_MANIFEST_URL = new URL("../../.claude-plugin/plugin.json", import.meta.url);
-const PLUGIN_MANIFEST = JSON.parse(fs.readFileSync(PLUGIN_MANIFEST_URL, "utf8"));
+const pluginManifest: unknown = JSON.parse(fs.readFileSync(PLUGIN_MANIFEST_URL, "utf8"));
+const pluginVersion =
+  pluginManifest !== null &&
+  typeof pluginManifest === "object" &&
+  "version" in pluginManifest &&
+  typeof pluginManifest.version === "string"
+    ? pluginManifest.version
+    : "0.0.0";
 
 export const BROKER_ENDPOINT_ENV = "CODEX_COMPANION_APP_SERVER_ENDPOINT";
 export const BROKER_BUSY_RPC_CODE = -32001;
@@ -29,7 +46,7 @@ export const BROKER_BUSY_RPC_CODE = -32001;
 const DEFAULT_CLIENT_INFO: ClientInfo = {
   title: "Codex Plugin",
   name: "Claude Code",
-  version: PLUGIN_MANIFEST.version ?? "0.0.0"
+  version: pluginVersion
 };
 
 const DEFAULT_CAPABILITIES: InitializeCapabilities = {
@@ -48,7 +65,7 @@ function buildJsonRpcError(code: number, message: string, data?: unknown) {
 }
 
 function createProtocolError(message: string, data?: { code?: number } & Record<string, unknown>): ProtocolError {
-  const error = new Error(message) as ProtocolError;
+  const error = new ProtocolError(message);
   error.data = data;
   if (data?.code !== undefined) {
     error.rpcCode = data.code;
@@ -56,7 +73,7 @@ function createProtocolError(message: string, data?: { code?: number } & Record<
   return error;
 }
 
-async function consumeStream(stream: any, onChunk: (chunk: string) => void) {
+async function consumeStream(stream: ReadableStream<Uint8Array>, onChunk: (chunk: string) => void): Promise<void> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   while (true) {
@@ -145,9 +162,13 @@ class AppServerClientBase {
       return;
     }
 
-    let message: any;
+    let message: JsonRpcMessage;
     try {
-      message = JSON.parse(line);
+      const parsed: unknown = JSON.parse(line);
+      if (!isJsonRpcMessage(parsed)) {
+        throw new Error("Expected a valid JSON-RPC message.");
+      }
+      message = parsed;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       this.handleExit(createProtocolError(`Failed to parse codex app-server JSONL: ${detail}`, { line }));
@@ -159,7 +180,7 @@ class AppServerClientBase {
       return;
     }
 
-    if (message.id !== undefined) {
+    if (typeof message.id === "number") {
       const pending = this.pending.get(message.id);
       if (!pending) {
         return;
@@ -167,7 +188,9 @@ class AppServerClientBase {
       this.pending.delete(message.id);
 
       if (message.error) {
-        pending.reject(createProtocolError(message.error.message ?? `codex app-server ${pending.method} failed.`, message.error));
+        pending.reject(
+          createProtocolError(message.error.message ?? `codex app-server ${pending.method} failed.`, message.error)
+        );
       } else {
         pending.resolve(message.result ?? {});
       }
@@ -175,11 +198,14 @@ class AppServerClientBase {
     }
 
     if (message.method && this.notificationHandler) {
+      // Codex generates static notification types but not runtime schemas. The
+      // JSON-RPC envelope is validated above; Codex remains authoritative for
+      // method-specific payload validation.
       this.notificationHandler(message as AppServerNotification);
     }
   }
 
-  handleServerRequest(message: any) {
+  handleServerRequest(message: JsonRpcMessage) {
     this.sendMessage({
       id: message.id,
       error: buildJsonRpcError(-32601, `Unsupported server request: ${message.method}`)
@@ -207,7 +233,7 @@ class AppServerClientBase {
 }
 
 class SpawnedCodexAppServerClient extends AppServerClientBase {
-  proc: any = null;
+  proc: Bun.PipedSubprocess | null = null;
 
   constructor(cwd: string, options: CodexAppServerClientOptions = {}) {
     super(cwd, options);
@@ -215,32 +241,33 @@ class SpawnedCodexAppServerClient extends AppServerClientBase {
   }
 
   async initialize() {
-    this.proc = Bun.spawn(["codex", "app-server"], {
+    const proc = Bun.spawn(["codex", "app-server"], {
       cwd: this.cwd,
       env: this.options.env ?? process.env,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe"
     });
+    this.proc = proc;
 
-    void consumeStream(this.proc.stdout, (chunk) => {
+    void consumeStream(proc.stdout, (chunk) => {
       this.handleChunk(chunk);
     }).catch((error) => {
       this.handleExit(error);
     });
-    void consumeStream(this.proc.stderr, (chunk) => {
+    void consumeStream(proc.stderr, (chunk) => {
       this.stderr += chunk;
     }).catch((error) => {
       this.handleExit(error);
     });
 
-    void this.proc.exited.then((code) => {
+    void proc.exited.then((code: number) => {
       const stderr = this.stderr.trim();
       const detail =
         code === 0
           ? null
           : createProtocolError(
-              `codex app-server exited unexpectedly (${this.proc.signalCode ? `signal ${this.proc.signalCode}` : `exit ${code}`}).${stderr ? `\n${stderr}` : ""}`
+              `codex app-server exited unexpectedly (${proc.signalCode ? `signal ${proc.signalCode}` : `exit ${code}`}).${stderr ? `\n${stderr}` : ""}`
             );
       this.handleExit(detail);
     });
@@ -272,7 +299,7 @@ class SpawnedCodexAppServerClient extends AppServerClientBase {
     await this.exitPromise;
   }
 
-  sendMessage(message: unknown) {
+  override sendMessage(message: unknown) {
     const line = `${JSON.stringify(message)}\n`;
     const stdin = this.proc?.stdin;
     if (!stdin) {
@@ -285,7 +312,7 @@ class SpawnedCodexAppServerClient extends AppServerClientBase {
 
 class BrokerCodexAppServerClient extends AppServerClientBase {
   readonly endpoint: string;
-  socket: any = null;
+  socket: Bun.Socket<AppServerClientBase> | null = null;
 
   constructor(cwd: string, options: CodexAppServerClientOptions & { brokerEndpoint: string }) {
     super(cwd, options);
@@ -297,8 +324,8 @@ class BrokerCodexAppServerClient extends AppServerClientBase {
     const target = parseBrokerEndpoint(this.endpoint);
     const client = this;
     const decoder = new TextDecoder();
-    this.socket = await new Promise<any>((resolve, reject) => {
-      Bun.connect({
+    this.socket = await new Promise<Bun.Socket<AppServerClientBase>>((resolve, reject) => {
+      Bun.connect<AppServerClientBase>({
         unix: target.path,
         data: client,
         socket: {
@@ -344,7 +371,7 @@ class BrokerCodexAppServerClient extends AppServerClientBase {
     await this.exitPromise;
   }
 
-  sendMessage(message: unknown) {
+  override sendMessage(message: unknown) {
     const line = `${JSON.stringify(message)}\n`;
     const socket = this.socket;
     if (!socket) {

@@ -2,12 +2,14 @@ import { CString, dlopen, FFIType, ptr } from "bun:ffi";
 
 type PathLike = string | URL | number;
 type FileData = string | ArrayBuffer | Uint8Array;
-type FfiFunction = (...args: any[]) => any;
 type WriteFileOptions = string | { encoding?: string; mode?: number };
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const isDarwin = process.platform === "darwin";
+if (!isDarwin && process.platform !== "linux") {
+  throw new Error(`codex-plugin-cc requires Linux or macOS; received ${process.platform}.`);
+}
 const OPEN_CREATE = isDarwin ? 0x200 : 0x40;
 const OPEN_TRUNCATE = isDarwin ? 0x400 : 0x200;
 const OPEN_APPEND = isDarwin ? 0x8 : 0x400;
@@ -21,12 +23,12 @@ const libc = dlopen(isDarwin ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
   mkdtemp: { args: [FFIType.ptr], returns: FFIType.ptr },
   open: { args: [FFIType.ptr, FFIType.i32, FFIType.u32], returns: FFIType.i32 },
   opendir: { args: [FFIType.ptr], returns: FFIType.ptr },
-  read: { args: [FFIType.i32, FFIType.ptr, FFIType.usize], returns: FFIType.isize },
+  read: { args: [FFIType.i32, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
   realpath: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr },
   rmdir: { args: [FFIType.ptr], returns: FFIType.i32 },
   symlink: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
   unlink: { args: [FFIType.ptr], returns: FFIType.i32 },
-  write: { args: [FFIType.i32, FFIType.ptr, FFIType.usize], returns: FFIType.isize }
+  write: { args: [FFIType.i32, FFIType.ptr, FFIType.u64], returns: FFIType.i64 }
 });
 
 function asPath(value: PathLike): string {
@@ -37,7 +39,11 @@ function cString(value: PathLike): Uint8Array {
   return encoder.encode(`${asPath(value)}\0`);
 }
 
-function callPath(symbol: FfiFunction, value: PathLike, ...args: any[]): any {
+function callPath<Args extends unknown[], Result>(
+  symbol: (path: ReturnType<typeof ptr>, ...args: Args) => Result,
+  value: PathLike,
+  ...args: Args
+): Result {
   const bytes = cString(value);
   return symbol(ptr(bytes), ...args);
 }

@@ -1,10 +1,10 @@
-import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";
+import { path } from "../plugins/codex/scripts/lib/platform.ts";
 
 import { writeExecutable } from "./helpers.ts";
 
 const PLATFORM_MODULE = new URL("../plugins/codex/scripts/lib/platform.ts", import.meta.url).href;
 
-export function installFakeCodex(binDir, behavior = "review-ok") {
+export function installFakeCodex(binDir: string, behavior = "review-ok"): void {
   const statePath = path.join(binDir, "fake-codex-state.json");
   const scriptPath = path.join(binDir, "codex");
   const source = `#!/usr/bin/env bun
@@ -669,7 +669,7 @@ rl.on("line", (line) => {
 
 }
 
-export function buildEnv(binDir) {
+export function buildEnv(binDir: string): Record<string, string | undefined> {
   return {
     ...process.env,
     PATH: `${binDir}:${process.env.PATH}`

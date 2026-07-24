@@ -1,6 +1,7 @@
 import { fs, os, path } from "./platform.ts";
 import { createBrokerEndpoint, parseBrokerEndpoint } from "./broker-endpoint.ts";
 import { resolveStateDir } from "./state.ts";
+import { isRecord } from "./validation.ts";
 
 export const PID_FILE_ENV = "CODEX_COMPANION_APP_SERVER_PID_FILE";
 export const LOG_FILE_ENV = "CODEX_COMPANION_APP_SERVER_LOG_FILE";
@@ -14,9 +15,24 @@ export interface BrokerSession {
   pid?: number | null;
 }
 
+function isBrokerSession(value: unknown): value is BrokerSession {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.endpoint === "string" &&
+    (value.pidFile === undefined || value.pidFile === null || typeof value.pidFile === "string") &&
+    (value.logFile === undefined || value.logFile === null || typeof value.logFile === "string") &&
+    (value.sessionDir === undefined || value.sessionDir === null || typeof value.sessionDir === "string") &&
+    (value.pid === undefined ||
+      value.pid === null ||
+      (typeof value.pid === "number" && Number.isFinite(value.pid)))
+  );
+}
+
 interface EnsureBrokerSessionOptions {
   createBrokerEndpoint?: (sessionDir: string) => string;
-  env?: Record<string, string | undefined>;
+  env?: Record<string, string | undefined> | undefined;
   killProcess?: ((pid: number) => void) | null;
   scriptPath?: string;
   timeoutMs?: number;
@@ -126,7 +142,8 @@ export function loadBrokerSession(cwd: string): BrokerSession | null {
   }
 
   try {
-    return JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    const parsed: unknown = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    return isBrokerSession(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -251,7 +268,8 @@ export function teardownBrokerSession({
     }
   }
 
-  const resolvedSessionDir = sessionDir ?? (pidFile ? path.dirname(pidFile) : logFile ? path.dirname(logFile) : null);
+  const sessionFile = pidFile || logFile;
+  const resolvedSessionDir = sessionDir ?? (sessionFile ? path.dirname(sessionFile) : null);
   if (resolvedSessionDir && fs.existsSync(resolvedSessionDir)) {
     try {
       fs.rmdirSync(resolvedSessionDir);

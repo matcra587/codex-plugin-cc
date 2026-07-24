@@ -1,5 +1,15 @@
 import { fs } from "./platform.ts";
 
+import type {
+  EnvironmentOptions,
+  JobExecution,
+  JobPatch,
+  JobRecord,
+  ProgressEvent,
+  ProgressInput,
+  ProgressReporter,
+  TrackedJob
+} from "./domain.ts";
 import { readJobFile, resolveJobFile, resolveJobLogFile, upsertJob, writeJobFile } from "./state.ts";
 
 export const SESSION_ID_ENV = "CODEX_COMPANION_SESSION_ID";
@@ -8,7 +18,7 @@ export function nowIso() {
   return new Date().toISOString();
 }
 
-function normalizeProgressEvent(value) {
+function normalizeProgressEvent(value: ProgressInput): ProgressEvent {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return {
       message: String(value.message ?? "").trim(),
@@ -32,7 +42,7 @@ function normalizeProgressEvent(value) {
   };
 }
 
-export function appendLogLine(logFile, message) {
+export function appendLogLine(logFile: string | null | undefined, message: unknown): void {
   const normalized = String(message ?? "").trim();
   if (!logFile || !normalized) {
     return;
@@ -40,14 +50,18 @@ export function appendLogLine(logFile, message) {
   fs.appendFileSync(logFile, `[${nowIso()}] ${normalized}\n`, "utf8");
 }
 
-export function appendLogBlock(logFile, title, body) {
+export function appendLogBlock(
+  logFile: string | null | undefined,
+  title: string | null | undefined,
+  body: string | null | undefined
+): void {
   if (!logFile || !body) {
     return;
   }
   fs.appendFileSync(logFile, `\n[${nowIso()}] ${title}\n${String(body).trimEnd()}\n`, "utf8");
 }
 
-export function createJobLogFile(workspaceRoot, jobId, title) {
+export function createJobLogFile(workspaceRoot: string, jobId: string, title?: string): string {
   const logFile = resolveJobLogFile(workspaceRoot, jobId);
   fs.writeFileSync(logFile, "", "utf8");
   if (title) {
@@ -56,10 +70,10 @@ export function createJobLogFile(workspaceRoot, jobId, title) {
   return logFile;
 }
 
-export function createJobRecord(
-  base: Record<string, any>,
-  options: Record<string, any> = {}
-): Record<string, any> {
+export function createJobRecord<Base extends JobPatch>(
+  base: Base,
+  options: EnvironmentOptions & { sessionIdEnv?: string } = {}
+): Base & { createdAt: string; sessionId?: string } {
   const env = options.env ?? process.env;
   const sessionId = env[options.sessionIdEnv ?? SESSION_ID_ENV];
   return {
@@ -69,14 +83,14 @@ export function createJobRecord(
   };
 }
 
-export function createJobProgressUpdater(workspaceRoot, jobId) {
+export function createJobProgressUpdater(workspaceRoot: string, jobId: string): ProgressReporter {
   let lastPhase: string | null = null;
   let lastThreadId: string | null = null;
   let lastTurnId: string | null = null;
 
-  return (event) => {
+  return (event: ProgressInput) => {
     const normalized = normalizeProgressEvent(event);
-    const patch: Record<string, any> = { id: jobId };
+    const patch: JobPatch = { id: jobId };
     let changed = false;
 
     if (normalized.phase && normalized.phase !== lastPhase) {
@@ -123,13 +137,13 @@ export function createProgressReporter({
 }: {
   stderr?: boolean;
   logFile?: string | null;
-  onEvent?: ((event: any) => void) | null;
-} = {}) {
+  onEvent?: ((event: ProgressEvent) => void) | null;
+} = {}): ProgressReporter | null {
   if (!stderr && !logFile && !onEvent) {
     return null;
   }
 
-  return (eventOrMessage) => {
+  return (eventOrMessage: ProgressInput) => {
     const event = normalizeProgressEvent(eventOrMessage);
     const stderrMessage = event.stderrMessage ?? event.message;
     if (stderr && stderrMessage) {
@@ -141,7 +155,7 @@ export function createProgressReporter({
   };
 }
 
-function readStoredJobOrNull(workspaceRoot, jobId) {
+function readStoredJobOrNull(workspaceRoot: string, jobId: string): JobRecord | null {
   const jobFile = resolveJobFile(workspaceRoot, jobId);
   if (!fs.existsSync(jobFile)) {
     return null;
@@ -149,7 +163,11 @@ function readStoredJobOrNull(workspaceRoot, jobId) {
   return readJobFile(jobFile);
 }
 
-export async function runTrackedJob(job: Record<string, any>, runner: () => Promise<any>, options: Record<string, any> = {}) {
+export async function runTrackedJob<Payload>(
+  job: TrackedJob,
+  runner: () => Promise<JobExecution<Payload>>,
+  options: { logFile?: string | null } = {}
+): Promise<JobExecution<Payload>> {
   const runningRecord = {
     ...job,
     status: "running",

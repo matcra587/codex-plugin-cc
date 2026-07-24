@@ -1,18 +1,33 @@
 import { fs, os, path } from "../plugins/codex/scripts/lib/platform.ts";
 
-export function makeTempDir(prefix = "codex-plugin-test-") {
+interface RunOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  input?: string | null;
+  shell?: false;
+}
+
+export interface RunResult {
+  status: number;
+  signal: string | null;
+  stdout: string;
+  stderr: string;
+  error: unknown;
+}
+
+export function makeTempDir(prefix = "codex-plugin-test-"): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-export function writeExecutable(filePath, source) {
+export function writeExecutable(filePath: string, source: string): void {
   fs.writeFileSync(filePath, source, { encoding: "utf8", mode: 0o755 });
 }
 
-export function run(command, args, options: Record<string, any> = {}) {
+export function run(command: string, args: string[], options: RunOptions = {}): RunResult {
   try {
     const result = Bun.spawnSync([command, ...args], {
-      cwd: options.cwd,
-      env: options.env,
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      ...(options.env === undefined ? {} : { env: options.env }),
       stdin: options.input == null ? undefined : new TextEncoder().encode(options.input),
       stdout: "pipe",
       stderr: "pipe"
@@ -35,7 +50,7 @@ export function run(command, args, options: Record<string, any> = {}) {
   }
 }
 
-export function initGitRepo(cwd) {
+export function initGitRepo(cwd: string): void {
   run("git", ["init", "-b", "main"], { cwd });
   run("git", ["config", "user.name", "Codex Plugin Tests"], { cwd });
   run("git", ["config", "user.email", "tests@example.com"], { cwd });

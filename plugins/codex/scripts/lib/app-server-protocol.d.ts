@@ -16,6 +16,8 @@ import type {
   ReviewStartResponse,
   ReviewTarget,
   Thread,
+  ThreadCompactStartParams,
+  ThreadCompactStartResponse,
   ThreadItem,
   ThreadListParams,
   ThreadListResponse,
@@ -52,7 +54,7 @@ export type ThreadStartParams = Omit<RawThreadStartParams, "persistExtendedHisto
 export type ThreadResumeParams = Omit<RawThreadResumeParams, "persistExtendedHistory">;
 
 export interface CodexAppServerClientOptions {
-  env?: Record<string, string | undefined>;
+  env?: Record<string, string | undefined> | undefined;
   clientInfo?: ClientInfo;
   capabilities?: InitializeCapabilities;
   brokerEndpoint?: string;
@@ -69,6 +71,7 @@ export interface AppServerMethodMap {
   "thread/resume": { params: ThreadResumeParams; result: ThreadResumeResponse };
   "thread/name/set": { params: ThreadSetNameParams; result: ThreadSetNameResponse };
   "thread/list": { params: ThreadListParams; result: ThreadListResponse };
+  "thread/compact/start": { params: ThreadCompactStartParams; result: ThreadCompactStartResponse };
   "review/start": { params: ReviewStartParams; result: ReviewStartResponse };
   "turn/start": { params: TurnStartParams; result: TurnStartResponse };
   "turn/interrupt": { params: TurnInterruptParams; result: TurnInterruptResponse };

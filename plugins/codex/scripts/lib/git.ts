@@ -14,6 +14,20 @@ interface ReviewCollectionOptions {
   maxInlineDiffBytes?: number;
 }
 
+export type ResolvedReviewTarget =
+  | {
+      mode: "working-tree";
+      label: string;
+      explicit: boolean;
+      baseRef?: never;
+    }
+  | {
+      mode: "branch";
+      label: string;
+      baseRef: string;
+      explicit: boolean;
+    };
+
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
@@ -143,8 +157,8 @@ export function getWorkingTreeState(cwd: string) {
 
 export function resolveReviewTarget(
   cwd: string,
-  options: { scope?: string; base?: string | null } = {}
-) {
+  options: { scope?: string | undefined; base?: string | null | undefined } = {}
+): ResolvedReviewTarget {
   ensureGitRepository(cwd);
 
   const requestedScope = options.scope ?? "auto";
@@ -322,7 +336,7 @@ function buildAdversarialCollectionGuidance(options: Pick<ReviewCollectionOption
 
 export function collectReviewContext(
   cwd: string,
-  target: ReturnType<typeof resolveReviewTarget>,
+  target: ResolvedReviewTarget,
   options: ReviewCollectionOptions = {}
 ) {
   const repoRoot = getRepoRoot(cwd);

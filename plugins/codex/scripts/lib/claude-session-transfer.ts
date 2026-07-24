@@ -5,7 +5,7 @@ import { ensureAbsolutePath } from "./fs.ts";
 export const TRANSCRIPT_PATH_ENV = "CODEX_COMPANION_TRANSCRIPT_PATH";
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
 
-function resolveUserPath(cwd, value) {
+function resolveUserPath(cwd: string, value: string): string {
   if (value === "~") {
     return os.homedir();
   }
@@ -15,7 +15,10 @@ function resolveUserPath(cwd, value) {
   return ensureAbsolutePath(cwd, value);
 }
 
-export function resolveClaudeSessionPath(cwd, options: { source?: string | null } = {}) {
+export function resolveClaudeSessionPath(
+  cwd: string,
+  options: { source?: string | null | undefined } = {}
+): string {
   const requestedPath = options.source || process.env[TRANSCRIPT_PATH_ENV];
   if (!requestedPath) {
     throw new Error("Could not identify the current Claude transcript. Retry with --source <path-to-claude-jsonl>.");
@@ -26,8 +29,8 @@ export function resolveClaudeSessionPath(cwd, options: { source?: string | null 
     throw new Error(`Claude session source must be a JSONL file: ${sourcePath}`);
   }
 
-  let source;
-  let projects;
+  let source: string;
+  let projects: string;
   try {
     source = fs.realpathSync(sourcePath);
     projects = fs.realpathSync(CLAUDE_PROJECTS_DIR);

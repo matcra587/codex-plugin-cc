@@ -1,3 +1,24 @@
+# Plugin tooling only receives environment variables explicitly from its host.
+env = false
+
 [install]
+# Never hide a missing install behind runtime network access.
 auto = "disable"
-linker = "hoisted"
+# Keep package.json and the lockfile precise when dependencies are added.
+exact = true
+# Retain strict dependency isolation while reusing Bun's global package store.
+globalStore = true
+linker = "isolated"
+# Hold new package releases for 72 hours. Existing locked versions are unaffected.
+minimumReleaseAge = 259200
+# `frozenLockfile` is intentionally omitted: CI uses `bun ci`, while local
+# dependency updates must remain writable.
+
+[run]
+bun = true
+# Background task workers intentionally outlive their launch command.
+# Do not enable noOrphans.
+shell = "bun"
+
+[test]
+root = "./tests"

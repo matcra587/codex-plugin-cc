@@ -7,13 +7,19 @@ import { makeTempDir, run } from "./helpers.ts";
 const ROOT = path.resolve(path.dirname(Bun.fileURLToPath(import.meta.url)), "..");
 const SCRIPT = path.join(ROOT, "scripts", "bump-version.ts");
 
-function writeJson(filePath, json) {
+function writeJson(filePath: string, json: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(json, null, 2)}\n`);
 }
 
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+interface VersionDocument {
+  version: string;
+  metadata: { version: string };
+  plugins: Array<{ version: string }>;
+}
+
+function readJson(filePath: string): VersionDocument {
+  return JSON.parse(fs.readFileSync(filePath, "utf8")) as VersionDocument;
 }
 
 function makeVersionFixture() {
@@ -53,7 +59,7 @@ test("bump-version updates every release manifest", () => {
   assert.equal(readJson(path.join(root, "package.json")).version, "1.2.3");
   assert.equal(readJson(path.join(root, "plugins", "codex", ".claude-plugin", "plugin.json")).version, "1.2.3");
   assert.equal(readJson(path.join(root, ".claude-plugin", "marketplace.json")).metadata.version, "1.2.3");
-  assert.equal(readJson(path.join(root, ".claude-plugin", "marketplace.json")).plugins[0].version, "1.2.3");
+  assert.equal(readJson(path.join(root, ".claude-plugin", "marketplace.json")).plugins[0]?.version, "1.2.3");
 });
 
 test("bump-version check mode reports stale metadata", () => {

@@ -8,7 +8,7 @@ export function createTempDir(prefix = "codex-plugin-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-export function readJsonFile(filePath: string): any {
+export function readJsonFile(filePath: string): unknown {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 

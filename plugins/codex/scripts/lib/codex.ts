@@ -4,19 +4,26 @@ import { readJsonFile } from "./fs.ts";
 import { BROKER_BUSY_RPC_CODE, BROKER_ENDPOINT_ENV, CodexAppServerClient } from "./app-server.ts";
 import { loadBrokerSession } from "./broker-lifecycle.ts";
 import { binaryAvailable } from "./process.ts";
+import { isRecord } from "./validation.ts";
 import type {
   AppServerNotification,
+  AppServerRequestParams,
+  AppServerResponse,
   ReviewTarget,
   ThreadItem,
   ThreadResumeParams,
   ThreadStartParams,
   Turn,
+  TurnStartParams,
   UserInput
 } from "./app-server-protocol";
 
 type AppServerClient = Awaited<ReturnType<typeof CodexAppServerClient.connect>>;
 type FileChangeItem = Extract<ThreadItem, { type: "fileChange" }>;
 type CommandExecutionItem = Extract<ThreadItem, { type: "commandExecution" }>;
+type ApprovalPolicy = NonNullable<ThreadStartParams["approvalPolicy"]>;
+type SandboxMode = NonNullable<ThreadStartParams["sandbox"]>;
+type TurnResponse = { turn: Turn };
 
 interface ProgressUpdate {
   message: string;
@@ -58,16 +65,16 @@ interface TurnCaptureState {
 }
 
 interface ThreadOptions {
-  model?: string | null;
-  approvalPolicy?: any;
-  sandbox?: any;
+  model?: string | null | undefined;
+  approvalPolicy?: ApprovalPolicy | undefined;
+  sandbox?: SandboxMode | undefined;
   ephemeral?: boolean;
-  threadName?: string | null;
+  threadName?: string | null | undefined;
 }
 
-interface CaptureTurnOptions {
-  onProgress?: ProgressReporter | null;
-  onResponse?: (response: any, state: TurnCaptureState) => void;
+interface CaptureTurnOptions<Response extends TurnResponse> {
+  onProgress?: ProgressReporter | null | undefined;
+  onResponse?: (response: Response, state: TurnCaptureState) => void;
 }
 
 const SERVICE_NAME = "claude_code_codex_plugin";
@@ -144,15 +151,21 @@ function buildTaskThreadName(prompt: string): string {
   return excerpt ? `${TASK_THREAD_PREFIX}: ${excerpt}` : TASK_THREAD_PREFIX;
 }
 
-function extractThreadId(message: any): string | null {
-  return message?.params?.threadId ?? null;
+function extractThreadId(message: unknown): string | null {
+  if (!isRecord(message) || !isRecord(message.params)) {
+    return null;
+  }
+  return typeof message.params.threadId === "string" ? message.params.threadId : null;
 }
 
-function extractTurnId(message: any): string | null {
-  if (message?.params?.turnId) {
+function extractTurnId(message: unknown): string | null {
+  if (!isRecord(message) || !isRecord(message.params)) {
+    return null;
+  }
+  if (typeof message.params.turnId === "string") {
     return message.params.turnId;
   }
-  if (message?.params?.turn?.id) {
+  if (isRecord(message.params.turn) && typeof message.params.turn.id === "string") {
     return message.params.turn.id;
   }
   return null;
@@ -341,7 +354,10 @@ function describeCompletedItem(state: TurnCaptureState, item: ThreadItem) {
   }
 }
 
-function createTurnCaptureState(threadId: string, options: CaptureTurnOptions = {}): TurnCaptureState {
+function createTurnCaptureState(
+  threadId: string,
+  options: Pick<CaptureTurnOptions<TurnResponse>, "onProgress"> = {}
+): TurnCaptureState {
   let resolveCompletion!: (state: TurnCaptureState) => void;
   let rejectCompletion!: (error: unknown) => void;
   const completion = new Promise<TurnCaptureState>((resolve, reject) => {
@@ -612,11 +628,11 @@ function applyTurnNotification(state: TurnCaptureState, message: AppServerNotifi
   }
 }
 
-async function captureTurn(
+async function captureTurn<Response extends TurnResponse>(
   client: AppServerClient,
   threadId: string,
-  startRequest: () => Promise<any>,
-  options: CaptureTurnOptions = {}
+  startRequest: () => Promise<Response>,
+  options: CaptureTurnOptions<Response> = {}
 ): Promise<TurnCaptureState> {
   const state = createTurnCaptureState(threadId, options);
   const previousHandler = client.notificationHandler;
@@ -633,10 +649,8 @@ async function captureTurn(
     }
 
     if (!belongsToTurn(state, message)) {
-        if (previousHandler) {
-          previousHandler(message);
-        }
-        return;
+      previousHandler?.(message);
+      return;
     }
 
     applyTurnNotification(state, message);
@@ -657,9 +671,7 @@ async function captureTurn(
       ) {
         applyTurnNotification(state, message);
       } else {
-        if (previousHandler) {
-          previousHandler(message);
-        }
+        previousHandler?.(message);
       }
     }
     state.bufferedNotifications.length = 0;
@@ -731,19 +743,23 @@ function importedThreadIdForSource(sourcePath: string): string | null {
   const ledger = readJsonFile(ledgerPath);
   const canonicalSource = fs.realpathSync(sourcePath);
   const contentSha256 = sourceContentSha256(canonicalSource);
-  const records = Array.isArray(ledger?.records) ? ledger.records : [];
+  const records = isRecord(ledger) && Array.isArray(ledger.records) ? ledger.records : [];
   const match = records
     .filter(
-      (record) =>
-        record?.source_path === canonicalSource &&
-        record?.content_sha256 === contentSha256 &&
-        typeof record?.imported_thread_id === "string"
+      (record): record is Record<string, unknown> & { imported_thread_id: string } =>
+        isRecord(record) &&
+        record.source_path === canonicalSource &&
+        record.content_sha256 === contentSha256 &&
+        typeof record.imported_thread_id === "string"
     )
     .at(-1);
   return match?.imported_thread_id ?? null;
 }
 
-function externalAgentSessionMigration(sourcePath: string, cwd: string) {
+function externalAgentSessionMigration(
+  sourcePath: string,
+  cwd: string
+): AppServerRequestParams<"externalAgentConfig/import"> {
   return {
     migrationItems: [
       {
@@ -752,6 +768,7 @@ function externalAgentSessionMigration(sourcePath: string, cwd: string) {
         cwd: null,
         details: {
           plugins: [],
+          skills: [],
           sessions: [{ path: sourcePath, cwd, title: null }],
           mcpServers: [],
           hooks: [],
@@ -763,7 +780,10 @@ function externalAgentSessionMigration(sourcePath: string, cwd: string) {
   };
 }
 
-async function requestExternalAgentSessionImport(client: AppServerClient, params: any) {
+async function requestExternalAgentSessionImport(
+  client: AppServerClient,
+  params: AppServerRequestParams<"externalAgentConfig/import">
+) {
   const previousHandler = client.notificationHandler;
   let timeout: ReturnType<typeof setTimeout> | null = null;
   let resolveCompleted!: () => void;
@@ -859,8 +879,8 @@ function buildAuthStatus(fields: Record<string, unknown> = {}) {
   };
 }
 
-function resolveProviderConfig(configResponse: any) {
-  const config = configResponse?.config;
+function resolveProviderConfig(configResponse: AppServerResponse<"config/read">) {
+  const config = configResponse.config;
   if (!config || typeof config !== "object") {
     return {
       providerId: null,
@@ -873,8 +893,8 @@ function resolveProviderConfig(configResponse: any) {
     config.model_providers && typeof config.model_providers === "object" && !Array.isArray(config.model_providers)
       ? config.model_providers
       : null;
-  const providerConfig =
-    providerId && providers?.[providerId] && typeof providers[providerId] === "object" ? providers[providerId] : null;
+  const providerCandidate = providerId && providers?.[providerId];
+  const providerConfig = isRecord(providerCandidate) ? providerCandidate : null;
 
   return {
     providerId,
@@ -882,10 +902,13 @@ function resolveProviderConfig(configResponse: any) {
   };
 }
 
-function buildAppServerAuthStatus(accountResponse: any, configResponse: any) {
-  const account = accountResponse?.account ?? null;
+function buildAppServerAuthStatus(
+  accountResponse: AppServerResponse<"account/read">,
+  configResponse: AppServerResponse<"config/read">
+) {
+  const account = accountResponse.account;
   const requiresOpenaiAuth =
-    typeof accountResponse?.requiresOpenaiAuth === "boolean" ? accountResponse.requiresOpenaiAuth : null;
+    typeof accountResponse.requiresOpenaiAuth === "boolean" ? accountResponse.requiresOpenaiAuth : null;
   const { providerId, providerConfig } = resolveProviderConfig(configResponse);
   const providerLabel = formatProviderLabel(providerId, providerConfig);
 
@@ -1080,10 +1103,10 @@ export async function runAppServerReview(
   cwd: string,
   options: {
     delivery?: "inline" | "detached";
-    model?: string | null;
-    onProgress?: ProgressReporter | null;
+    model?: string | null | undefined;
+    onProgress?: ProgressReporter | null | undefined;
     target: ReviewTarget;
-    threadName?: string | null;
+    threadName?: string | null | undefined;
   }
 ) {
   const availability = getCodexAvailability(cwd);
@@ -1186,15 +1209,15 @@ export async function runAppServerTurn(
   cwd: string,
   options: {
     defaultPrompt?: string;
-    effort?: any;
-    model?: string | null;
-    onProgress?: ProgressReporter | null;
+    effort?: TurnStartParams["effort"];
+    model?: string | null | undefined;
+    onProgress?: ProgressReporter | null | undefined;
     outputSchema?: unknown;
     persistThread?: boolean;
     prompt?: string;
     resumeThreadId?: string | null;
-    sandbox?: any;
-    threadName?: string | null;
+    sandbox?: SandboxMode | undefined;
+    threadName?: string | null | undefined;
   } = {}
 ) {
   const availability = getCodexAvailability(cwd);
@@ -1319,7 +1342,7 @@ export function parseStructuredOutput(
   }
 }
 
-export function readOutputSchema(schemaPath: string): any {
+export function readOutputSchema(schemaPath: string): unknown {
   return readJsonFile(schemaPath);
 }
 

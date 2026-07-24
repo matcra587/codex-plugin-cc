@@ -12,11 +12,13 @@
   "scripts": {
     "bump-version": "bun scripts/bump-version.ts",
     "check-version": "bun scripts/bump-version.ts --check",
-    "prebuild": "mkdir -p plugins/codex/.generated/app-server-types && codex app-server generate-ts --out plugins/codex/.generated/app-server-types",
-    "build": "bunx tsc -p tsconfig.app-server.json",
+    "generate:types": "mkdir -p plugins/codex/.generated/app-server-types && codex app-server generate-ts --out plugins/codex/.generated/app-server-types",
+    "typecheck": "bunx tsc -p tsconfig.app-server.json",
+    "build": "bun run generate:types && bun run typecheck",
     "test": "bun test"
   },
   "devDependencies": {
-    "typescript": "^7.0.2"
+    "@types/bun": "1.3.14",
+    "typescript": "7.0.2"
   }
 }

@@ -1,21 +1,33 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "lib": ["ESNext"],
+    "target": "ESNext",
     "module": "Preserve",
+    "moduleDetection": "force",
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "erasableSyntaxOnly": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "noEmit": true,
     "strict": true,
-    "noImplicitAny": false,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
+    "noUncheckedSideEffectImports": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "skipLibCheck": true,
-    "types": []
+    "types": ["bun"]
   },
   "include": [
     "plugins/codex/scripts/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.ts",
-    "plugins/codex/scripts/lib/bun-runtime.d.ts",
     "plugins/codex/scripts/lib/app-server-protocol.d.ts",
     "plugins/codex/.generated/app-server-types/**/*.ts"
   ]

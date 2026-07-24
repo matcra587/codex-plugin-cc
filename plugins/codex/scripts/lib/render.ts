@@ -1,4 +1,71 @@
-function severityRank(severity) {
+import type { CompanionConfig, JobRecord } from "./domain.ts";
+import type { EnrichedJob } from "./job-control.ts";
+import { isRecord } from "./validation.ts";
+
+interface ReviewFinding {
+  severity: string;
+  title: string;
+  body: string;
+  file: string;
+  line_start: number | null;
+  line_end: number | null;
+  recommendation: string;
+}
+
+interface RawReviewResult {
+  verdict: string;
+  summary: string;
+  findings: unknown[];
+  next_steps: unknown[];
+}
+
+type ReviewValidation =
+  | { ok: true; value: RawReviewResult }
+  | { ok: false; error: string };
+
+interface ParsedReviewResult {
+  parsed?: unknown;
+  parseError?: string | null;
+  rawOutput?: string;
+  reasoningSummary?: string[];
+}
+
+interface ReviewRenderMeta {
+  reviewLabel: string;
+  targetLabel: string;
+  reasoningSummary?: string[];
+}
+
+interface JobDetailsOptions {
+  showElapsed?: boolean;
+  showDuration?: boolean;
+  showLog?: boolean;
+  showCancelHint?: boolean;
+  showResultHint?: boolean;
+  showReviewHint?: boolean;
+}
+
+interface StatusReport {
+  sessionRuntime: { label: string };
+  config: CompanionConfig;
+  running: EnrichedJob[];
+  latestFinished: EnrichedJob | null;
+  recent: EnrichedJob[];
+  needsReview: boolean;
+}
+
+interface SetupReport {
+  ready: boolean;
+  bun: { detail: string };
+  codex: { detail: string };
+  auth: { detail: string };
+  sessionRuntime: { label: string };
+  reviewGateEnabled: boolean;
+  actionsTaken: string[];
+  nextSteps: string[];
+}
+
+function severityRank(severity: string): number {
   switch (severity) {
     case "critical":
       return 0;
@@ -11,7 +78,7 @@ function severityRank(severity) {
   }
 }
 
-function formatLineRange(finding) {
+function formatLineRange(finding: ReviewFinding): string {
   if (!finding.line_start) {
     return "";
   }
@@ -21,30 +88,44 @@ function formatLineRange(finding) {
   return `:${finding.line_start}-${finding.line_end}`;
 }
 
-function validateReviewResultShape(data) {
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return "Expected a top-level JSON object.";
+function validateReviewResultShape(data: unknown): ReviewValidation {
+  if (!isRecord(data)) {
+    return { ok: false, error: "Expected a top-level JSON object." };
   }
   if (typeof data.verdict !== "string" || !data.verdict.trim()) {
-    return "Missing string `verdict`.";
+    return { ok: false, error: "Missing string `verdict`." };
   }
   if (typeof data.summary !== "string" || !data.summary.trim()) {
-    return "Missing string `summary`.";
+    return { ok: false, error: "Missing string `summary`." };
   }
   if (!Array.isArray(data.findings)) {
-    return "Missing array `findings`.";
+    return { ok: false, error: "Missing array `findings`." };
   }
   if (!Array.isArray(data.next_steps)) {
-    return "Missing array `next_steps`.";
+    return { ok: false, error: "Missing array `next_steps`." };
   }
-  return null;
+  return {
+    ok: true,
+    value: {
+      verdict: data.verdict,
+      summary: data.summary,
+      findings: data.findings,
+      next_steps: data.next_steps
+    }
+  };
 }
 
-function normalizeReviewFinding(finding, index) {
-  const source = finding && typeof finding === "object" && !Array.isArray(finding) ? finding : {};
-  const lineStart = Number.isInteger(source.line_start) && source.line_start > 0 ? source.line_start : null;
+function normalizeReviewFinding(finding: unknown, index: number): ReviewFinding {
+  const source = isRecord(finding) ? finding : {};
+  const lineStart =
+    typeof source.line_start === "number" && Number.isInteger(source.line_start) && source.line_start > 0
+      ? source.line_start
+      : null;
   const lineEnd =
-    Number.isInteger(source.line_end) && source.line_end > 0 && (!lineStart || source.line_end >= lineStart)
+    typeof source.line_end === "number" &&
+    Number.isInteger(source.line_end) &&
+    source.line_end > 0 &&
+    (!lineStart || source.line_end >= lineStart)
       ? source.line_end
       : lineStart;
 
@@ -59,18 +140,18 @@ function normalizeReviewFinding(finding, index) {
   };
 }
 
-function normalizeReviewResultData(data) {
+function normalizeReviewResultData(data: RawReviewResult) {
   return {
     verdict: data.verdict.trim(),
     summary: data.summary.trim(),
-    findings: data.findings.map((finding, index) => normalizeReviewFinding(finding, index)),
+    findings: data.findings.map((finding: unknown, index: number) => normalizeReviewFinding(finding, index)),
     next_steps: data.next_steps
-      .filter((step) => typeof step === "string" && step.trim())
-      .map((step) => step.trim())
+      .filter((step): step is string => typeof step === "string" && Boolean(step.trim()))
+      .map((step: string) => step.trim())
   };
 }
 
-function isStructuredReviewStoredResult(storedJob) {
+function isStructuredReviewStoredResult(storedJob: Partial<JobRecord> | null | undefined): boolean {
   const result = storedJob?.result;
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return false;
@@ -81,7 +162,7 @@ function isStructuredReviewStoredResult(storedJob) {
   );
 }
 
-function formatJobLine(job) {
+function formatJobLine(job: JobRecord): string {
   const parts = [job.id, `${job.status || "unknown"}`];
   if (job.kindLabel) {
     parts.push(job.kindLabel);
@@ -92,21 +173,21 @@ function formatJobLine(job) {
   return parts.join(" | ");
 }
 
-function escapeMarkdownCell(value) {
+function escapeMarkdownCell(value: unknown): string {
   return String(value ?? "")
     .replace(/\|/g, "\\|")
     .replace(/\r?\n/g, " ")
     .trim();
 }
 
-function formatCodexResumeCommand(job) {
+function formatCodexResumeCommand(job: JobRecord): string | null {
   if (!job?.threadId) {
     return null;
   }
   return `codex resume ${job.threadId}`;
 }
 
-function appendActiveJobsTable(lines, jobs) {
+function appendActiveJobsTable(lines: string[], jobs: readonly EnrichedJob[]): void {
   lines.push("Active jobs:");
   lines.push("| Job | Kind | Status | Phase | Elapsed | Codex Session ID | Summary | Actions |");
   lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |");
@@ -121,7 +202,7 @@ function appendActiveJobsTable(lines, jobs) {
   }
 }
 
-function pushJobDetails(lines, job, options: Record<string, any> = {}) {
+function pushJobDetails(lines: string[], job: JobRecord, options: JobDetailsOptions = {}): void {
   lines.push(`- ${formatJobLine(job)}`);
   if (job.summary) {
     lines.push(`  Summary: ${job.summary}`);
@@ -163,7 +244,7 @@ function pushJobDetails(lines, job, options: Record<string, any> = {}) {
   }
 }
 
-function appendReasoningSection(lines, reasoningSummary) {
+function appendReasoningSection(lines: string[], reasoningSummary: readonly string[] | null | undefined): void {
   if (!Array.isArray(reasoningSummary) || reasoningSummary.length === 0) {
     return;
   }
@@ -174,7 +255,7 @@ function appendReasoningSection(lines, reasoningSummary) {
   }
 }
 
-export function renderSetupReport(report) {
+export function renderSetupReport(report: SetupReport): string {
   const lines = [
     "# Codex Setup",
     "",
@@ -207,7 +288,7 @@ export function renderSetupReport(report) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-export function renderReviewResult(parsedResult, meta) {
+export function renderReviewResult(parsedResult: ParsedReviewResult, meta: ReviewRenderMeta): string {
   if (!parsedResult.parsed) {
     const lines = [
       `# Codex ${meta.reviewLabel}`,
@@ -226,15 +307,15 @@ export function renderReviewResult(parsedResult, meta) {
     return `${lines.join("\n").trimEnd()}\n`;
   }
 
-  const validationError = validateReviewResultShape(parsedResult.parsed);
-  if (validationError) {
+  const validation = validateReviewResultShape(parsedResult.parsed);
+  if (!validation.ok) {
     const lines = [
       `# Codex ${meta.reviewLabel}`,
       "",
       `Target: ${meta.targetLabel}`,
       "Codex returned JSON with an unexpected review shape.",
       "",
-      `- Validation error: ${validationError}`
+      `- Validation error: ${validation.error}`
     ];
 
     if (parsedResult.rawOutput) {
@@ -246,7 +327,7 @@ export function renderReviewResult(parsedResult, meta) {
     return `${lines.join("\n").trimEnd()}\n`;
   }
 
-  const data = normalizeReviewResultData(parsedResult.parsed);
+  const data = normalizeReviewResultData(validation.value);
   const findings = [...data.findings].sort((left, right) => severityRank(left.severity) - severityRank(right.severity));
   const lines = [
     `# Codex ${meta.reviewLabel}`,
@@ -284,7 +365,10 @@ export function renderReviewResult(parsedResult, meta) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-export function renderNativeReviewResult(result, meta) {
+export function renderNativeReviewResult(
+  result: { stdout: string; stderr: string; status: number },
+  meta: ReviewRenderMeta
+): string {
   const stdout = result.stdout.trim();
   const stderr = result.stderr.trim();
   const lines = [
@@ -311,7 +395,13 @@ export function renderNativeReviewResult(result, meta) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-export function renderTaskResult(parsedResult, meta) {
+export function renderTaskResult(
+  parsedResult:
+    | { rawOutput?: unknown; failureMessage?: unknown; reasoningSummary?: readonly string[] }
+    | null
+    | undefined,
+  _meta: { title?: string; jobId?: string | null; write?: boolean } = {}
+): string {
   const rawOutput = typeof parsedResult?.rawOutput === "string" ? parsedResult.rawOutput : "";
   if (rawOutput) {
     return rawOutput.endsWith("\n") ? rawOutput : `${rawOutput}\n`;
@@ -321,7 +411,7 @@ export function renderTaskResult(parsedResult, meta) {
   return `${message}\n`;
 }
 
-export function renderStatusReport(report) {
+export function renderStatusReport(report: StatusReport): string {
   const lines = [
     "# Codex Status",
     "",
@@ -373,7 +463,7 @@ export function renderStatusReport(report) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-export function renderJobStatusReport(job) {
+export function renderJobStatusReport(job: JobRecord): string {
   const lines = ["# Codex Job Status", ""];
   pushJobDetails(lines, job, {
     showElapsed: job.status === "queued" || job.status === "running",
@@ -386,7 +476,7 @@ export function renderJobStatusReport(job) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-export function renderStoredJobResult(job, storedJob) {
+export function renderStoredJobResult(job: JobRecord, storedJob: Partial<JobRecord> | null): string {
   const threadId = storedJob?.threadId ?? job.threadId ?? null;
   const resumeCommand = threadId ? `codex resume ${threadId}` : null;
   if (isStructuredReviewStoredResult(storedJob) && storedJob?.rendered) {
@@ -444,7 +534,7 @@ export function renderStoredJobResult(job, storedJob) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-export function renderCancelReport(job) {
+export function renderCancelReport(job: JobRecord): string {
   const lines = [
     "# Codex Cancel",
     "",
