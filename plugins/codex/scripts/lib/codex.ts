@@ -1111,7 +1111,7 @@ export async function runAppServerReview(
 ) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex`, then rerun `/codex:setup`.");
+    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`.");
   }
 
   return withAppServer(cwd, async (client) => {
@@ -1170,7 +1170,7 @@ export async function importExternalAgentSession(
 ) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex`, then rerun `/codex:setup`.");
+    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`.");
   }
   const sourcePath = options.sourcePath;
   if (!sourcePath) {
@@ -1222,7 +1222,7 @@ export async function runAppServerTurn(
 ) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex`, then rerun `/codex:setup`.");
+    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`.");
   }
 
   return withAppServer(cwd, async (client) => {
@@ -1289,7 +1289,7 @@ export async function runAppServerTurn(
 export async function findLatestTaskThread(cwd: string) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex`, then rerun `/codex:setup`.");
+    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`.");
   }
 
   return withAppServer(cwd, async (client) => {

@@ -805,6 +805,64 @@ test("task forwards model selection and reasoning effort to app-server turn/star
   assert.equal(fakeState.lastTurnStart.effort, "low");
 });
 
+test("task forwards GPT-5.6 Sol with max reasoning effort", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const result = run(
+    "bun",
+    [SCRIPT, "task", "--model", "gpt-5.6-sol", "--effort", "max", "diagnose the failing test"],
+    {
+      cwd: repo,
+      env: buildEnv(binDir)
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const fakeState = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
+  assert.equal(fakeState.lastTurnStart.model, "gpt-5.6-sol");
+  assert.equal(fakeState.lastTurnStart.effort, "max");
+});
+
+test("task forwards GPT-5.6 Terra with Codex ultra reasoning effort", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const result = run(
+    "bun",
+    [SCRIPT, "task", "--model", "gpt-5.6-terra", "--effort", "ultra", "diagnose the failing test"],
+    {
+      cwd: repo,
+      env: buildEnv(binDir)
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const fakeState = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
+  assert.equal(fakeState.lastTurnStart.model, "gpt-5.6-terra");
+  assert.equal(fakeState.lastTurnStart.effort, "ultra");
+});
+
+test("task explains how to update Codex when a GPT-5.6 model requires a newer CLI", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir, "model-upgrade-required");
+  initGitRepo(repo);
+
+  const result = run("bun", [SCRIPT, "task", "--model", "gpt-5.6-terra", "diagnose the failing test"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /requires a newer version of Codex/i);
+  assert.match(result.stderr, /bun add --global @openai\/codex@latest/);
+});
+
 test("task logs reasoning summaries and assistant messages to the job log", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();

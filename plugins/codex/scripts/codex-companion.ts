@@ -125,7 +125,7 @@ function printUsage(): void {
       "  bun scripts/codex-companion.ts setup [--enable-review-gate|--disable-review-gate] [--json]",
       "  bun scripts/codex-companion.ts review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
       "  bun scripts/codex-companion.ts adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
-      "  bun scripts/codex-companion.ts task [--background] [--write] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
+      "  bun scripts/codex-companion.ts task [--background] [--write] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh|max|ultra>] [prompt]",
       "  bun scripts/codex-companion.ts transfer [--source <claude-jsonl>] [--json]",
       "  bun scripts/codex-companion.ts status [job-id] [--all] [--json]",
       "  bun scripts/codex-companion.ts result [job-id] [--json]",
@@ -238,7 +238,7 @@ async function buildSetupReport(cwd: string, actionsTaken: string[] = []) {
 
   const nextSteps: string[] = [];
   if (!codexStatus.available) {
-    nextSteps.push("Install Codex with `bun add --global @openai/codex`.");
+    nextSteps.push("Install Codex with `bun add --global @openai/codex@latest`.");
   }
   if (codexStatus.available && !authStatus.loggedIn && authStatus.requiresOpenaiAuth) {
     nextSteps.push("Run `!codex login`.");
@@ -300,7 +300,7 @@ function buildAdversarialReviewPrompt(context: ReviewContext, focusText: string)
 function ensureCodexAvailable(cwd: string): void {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex`, then rerun `/codex:setup`.");
+    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`.");
   }
 }
 
@@ -1133,8 +1133,16 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
+function formatTopLevelError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
+  if (/requires a newer version of Codex/i.test(message)) {
+    return `${message}\nUpdate Codex with \`bun add --global @openai/codex@latest\`, then retry.`;
+  }
+  return message;
+}
+
+main().catch((error) => {
+  const message = formatTopLevelError(error);
   process.stderr.write(`${message}\n`);
   process.exitCode = 1;
 });

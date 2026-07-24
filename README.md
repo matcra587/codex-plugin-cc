@@ -51,7 +51,7 @@ Then run:
 If you prefer to install Codex yourself, use:
 
 ```bash
-bun add --global @openai/codex
+bun add --global @openai/codex@latest
 ```
 
 If Codex is installed but not logged in yet, run:
@@ -135,10 +135,7 @@ Use it when you want Codex to:
 - continue a previous Codex task
 - take a faster or cheaper pass with a smaller model
 
-> [!NOTE]
-> Depending on the task and the model you choose these tasks might take a long time and it's generally recommended to force the task to be in the background or move the agent to the background.
-
-It supports `--background`, `--wait`, `--resume`, and `--fresh`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo.
+It supports `--background`, `--wait`, `--resume`, and `--fresh`. Rescue tasks use a detached background worker by default so they survive Claude Code's Bash timeout; pass `--wait` only when you want to keep the task in the foreground. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo.
 
 Examples:
 
@@ -146,7 +143,7 @@ Examples:
 /codex:rescue investigate why the tests started failing
 /codex:rescue fix the failing test with the smallest safe patch
 /codex:rescue --resume apply the top fix from the last run
-/codex:rescue --model gpt-5.4-mini --effort medium investigate the flaky integration test
+/codex:rescue --model gpt-5.6-terra --effort medium investigate the flaky integration test
 /codex:rescue --model spark fix the issue quickly
 /codex:rescue --background investigate the regression
 ```
@@ -160,6 +157,8 @@ Ask Codex to redesign the database connection to be more resilient.
 **Notes:**
 
 - if you do not pass `--model` or `--effort`, Codex chooses its own defaults.
+- explicit GPT-5.6 model names such as `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` pass through to Codex.
+- the plugin accepts Codex reasoning efforts through `max` and `ultra`; Codex validates whether the selected model supports the requested effort.
 - if you say `spark`, the plugin maps that to `gpt-5.3-codex-spark`
 - follow-up rescue requests can continue the latest Codex task in the repo
 
@@ -271,10 +270,10 @@ The Codex plugin wraps the [Codex app server](https://developers.openai.com/code
 
 ### Common Configurations
 
-If you want to change the default reasoning effort or the default model that gets used by the plugin, you can define that inside your user-level or project-level `config.toml`. For example to always use `gpt-5.4-mini` on `high` for a specific project you can add the following to a `.codex/config.toml` file at the root of the directory you started Claude in:
+If you want to change the default reasoning effort or the default model that gets used by the plugin, you can define that inside your user-level or project-level `config.toml`. For example, to always use `gpt-5.6-sol` on `high` for a specific project, add the following to a `.codex/config.toml` file at the root of the directory where you started Claude:
 
 ```toml
-model = "gpt-5.4-mini"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 ```
 

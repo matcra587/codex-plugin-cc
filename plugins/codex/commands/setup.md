@@ -19,7 +19,7 @@ If the result says Codex is unavailable and Bun is available:
 - If the user chooses install, run:
 
 ```bash
-bun add --global @openai/codex
+bun add --global @openai/codex@latest
 ```
 
 - Then rerun:

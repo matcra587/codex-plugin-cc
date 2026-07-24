@@ -1,12 +1,17 @@
 ---
 description: Delegate investigation, an explicit fix request, or follow-up rescue work to the Codex rescue subagent
-argument-hint: "[--background|--wait] [--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [what Codex should investigate, solve, or continue]"
+argument-hint: "[--background|--wait] [--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh|max|ultra>] [what Codex should investigate, solve, or continue]"
 allowed-tools: Bash(bun:*), AskUserQuestion, Agent
 ---
 
-Invoke the `codex:codex-rescue` subagent via the `Agent` tool (`subagent_type: "codex:codex-rescue"`), forwarding the raw user request as the prompt.
+Invoke the `codex:codex-rescue` subagent via the `Agent` tool (`subagent_type: "codex:codex-rescue"`).
 `codex:codex-rescue` is a subagent, not a skill — do not call `Skill(codex:codex-rescue)` (no such skill) or `Skill(codex:rescue)` (that re-enters this command and hangs the session). The command runs inline so the `Agent` tool stays in scope; forked general-purpose subagents do not expose it.
 The final user-visible response must be Codex's output verbatim.
+
+Build the Agent prompt from these two labelled fields so Claude Code expands the plugin path before the subagent starts:
+
+Companion script path:
+`${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.ts`
 
 Raw user request:
 $ARGUMENTS
@@ -15,8 +20,10 @@ Execution mode:
 
 - If the request includes `--background`, run the `codex:codex-rescue` subagent in the background.
 - If the request includes `--wait`, run the `codex:codex-rescue` subagent in the foreground.
-- If neither flag is present, default to foreground.
-- `--background` and `--wait` are execution flags for Claude Code. Do not forward them to `task`, and do not treat them as part of the natural-language task text.
+- If neither flag is present, run the subagent in the foreground so it can return the queued job, but default the Codex task to background.
+- Forward `--background` to `task` so the detached worker survives Claude Code's Bash timeout.
+- Strip `--wait` before calling `task`; it means the Codex task may run in the foreground.
+- Do not treat either execution flag as part of the natural-language task text.
 - `--model` and `--effort` are runtime-selection flags. Preserve them for the forwarded `task` call, but do not treat them as part of the natural-language task text.
 - If the request includes `--resume`, do not ask whether to continue. The user already chose.
 - If the request includes `--fresh`, do not ask whether to continue. The user already chose.
@@ -38,9 +45,10 @@ bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.ts" task-resume-candidate --j
 
 Operating rules:
 
-- The subagent is a thin forwarder only. It should use one `Bash` call to invoke `bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.ts" task ...` and return that command's stdout as-is.
+- The subagent is a thin forwarder only. It should use one `Bash` call with the supplied absolute companion script path and return that command's stdout as-is.
 - Return the Codex companion stdout verbatim to the user.
 - Do not paraphrase, summarize, rewrite, or add commentary before or after it.
+- If the companion command fails, return its failure output verbatim and stop. Never substitute a Claude-authored answer.
 - Do not ask the subagent to inspect files, monitor progress, poll `/codex:status`, fetch `/codex:result`, call `/codex:cancel`, summarize output, or do follow-up work of its own.
 - Leave `--effort` unset unless the user explicitly asks for a specific reasoning effort.
 - Leave the model unset unless the user explicitly asks for one. If they ask for `spark`, map it to `gpt-5.3-codex-spark`.

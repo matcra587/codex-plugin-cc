@@ -12,7 +12,7 @@ export const JOB_KINDS = ["review", "adversarial-review", "task"] as const;
 
 export type JobKind = (typeof JOB_KINDS)[number];
 
-export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
