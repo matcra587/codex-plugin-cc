@@ -1,9 +1,11 @@
 import { test } from "bun:test";
 
 import {
+  createBrokerSessionDir,
   loadBrokerSession,
   saveBrokerSession
 } from "../plugins/codex/scripts/lib/broker-lifecycle.ts";
+import { createBrokerEndpoint } from "../plugins/codex/scripts/lib/broker-endpoint.ts";
 import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { resolveStateDir } from "../plugins/codex/scripts/lib/state.ts";
 import { assert } from "./assertions.ts";
@@ -17,11 +19,12 @@ function writeBrokerState(workspace: string, value: unknown): void {
 
 test("loadBrokerSession returns a validated persisted session", () => {
   const workspace = makeTempDir();
+  const sessionDir = createBrokerSessionDir();
   const session = {
-    endpoint: "unix:/tmp/codex-broker.sock",
-    pidFile: "/tmp/codex-broker.pid",
-    logFile: "/tmp/codex-broker.log",
-    sessionDir: "/tmp/codex-broker",
+    endpoint: createBrokerEndpoint(sessionDir),
+    pidFile: path.join(sessionDir, "broker.pid"),
+    logFile: path.join(sessionDir, "broker.log"),
+    sessionDir,
     pid: 1234
   };
 
@@ -37,5 +40,30 @@ test("loadBrokerSession rejects malformed persisted sessions", () => {
   assert.equal(loadBrokerSession(workspace), null);
 
   writeBrokerState(workspace, { endpoint: "unix:/tmp/codex-broker.sock", pid: "1234" });
+  assert.equal(loadBrokerSession(workspace), null);
+});
+
+test("loadBrokerSession rejects paths outside its private session directory", () => {
+  const workspace = makeTempDir();
+  const sessionDir = createBrokerSessionDir();
+
+  writeBrokerState(workspace, {
+    endpoint: createBrokerEndpoint(sessionDir),
+    pidFile: path.join(workspace, "keep.pid"),
+    logFile: path.join(sessionDir, "broker.log"),
+    sessionDir,
+    pid: 1234
+  });
+
+  assert.equal(loadBrokerSession(workspace), null);
+
+  writeBrokerState(workspace, {
+    endpoint: `unix:${path.join(workspace, "attacker.sock")}`,
+    pidFile: path.join(sessionDir, "broker.pid"),
+    logFile: path.join(sessionDir, "broker.log"),
+    sessionDir,
+    pid: 1
+  });
+
   assert.equal(loadBrokerSession(workspace), null);
 });

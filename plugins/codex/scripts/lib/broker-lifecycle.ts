@@ -1,11 +1,13 @@
 import { fs, os, path } from "./platform.ts";
 import { createBrokerEndpoint, parseBrokerEndpoint } from "./broker-endpoint.ts";
-import { resolveStateDir } from "./state.ts";
+import { ensureStateDir, resolveStateDir } from "./state.ts";
 import { isRecord } from "./validation.ts";
 
 export const PID_FILE_ENV = "CODEX_COMPANION_APP_SERVER_PID_FILE";
 export const LOG_FILE_ENV = "CODEX_COMPANION_APP_SERVER_LOG_FILE";
 const BROKER_STATE_FILE = "broker.json";
+const BROKER_SESSION_PREFIX = "cxc-";
+const PRIVATE_FILE_MODE = 0o600;
 
 export interface BrokerSession {
   endpoint: string;
@@ -15,18 +17,45 @@ export interface BrokerSession {
   pid?: number | null;
 }
 
-function isBrokerSession(value: unknown): value is BrokerSession {
+function isBrokerSession(value: unknown): value is Required<BrokerSession> {
   if (!isRecord(value)) {
     return false;
   }
+  if (
+    typeof value.endpoint !== "string" ||
+    typeof value.pidFile !== "string" ||
+    typeof value.logFile !== "string" ||
+    typeof value.sessionDir !== "string" ||
+    typeof value.pid !== "number" ||
+    !Number.isSafeInteger(value.pid) ||
+    value.pid <= 1
+  ) {
+    return false;
+  }
+
+  const sessionDir = path.resolve(value.sessionDir);
+  const relativeSessionDir = path.relative(path.resolve(os.tmpdir()), sessionDir);
+  if (
+    !relativeSessionDir ||
+    relativeSessionDir === ".." ||
+    relativeSessionDir.startsWith(`..${path.sep}`) ||
+    relativeSessionDir.includes(path.sep) ||
+    !path.basename(sessionDir).startsWith(BROKER_SESSION_PREFIX)
+  ) {
+    return false;
+  }
+
+  let endpointPath: string;
+  try {
+    endpointPath = path.resolve(parseBrokerEndpoint(value.endpoint).path);
+  } catch {
+    return false;
+  }
+
   return (
-    typeof value.endpoint === "string" &&
-    (value.pidFile === undefined || value.pidFile === null || typeof value.pidFile === "string") &&
-    (value.logFile === undefined || value.logFile === null || typeof value.logFile === "string") &&
-    (value.sessionDir === undefined || value.sessionDir === null || typeof value.sessionDir === "string") &&
-    (value.pid === undefined ||
-      value.pid === null ||
-      (typeof value.pid === "number" && Number.isFinite(value.pid)))
+    endpointPath === path.join(sessionDir, "broker.sock") &&
+    path.resolve(value.pidFile) === path.join(sessionDir, "broker.pid") &&
+    path.resolve(value.logFile) === path.join(sessionDir, "broker.log")
   );
 }
 
@@ -47,7 +76,7 @@ interface TeardownBrokerSessionOptions {
   killProcess?: ((pid: number) => void) | null;
 }
 
-export function createBrokerSessionDir(prefix = "cxc-") {
+export function createBrokerSessionDir(prefix = BROKER_SESSION_PREFIX) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
@@ -150,9 +179,14 @@ export function loadBrokerSession(cwd: string): BrokerSession | null {
 }
 
 export function saveBrokerSession(cwd: string, session: BrokerSession) {
-  const stateDir = resolveStateDir(cwd);
-  fs.mkdirSync(stateDir, { recursive: true });
-  fs.writeFileSync(resolveBrokerStateFile(cwd), `${JSON.stringify(session, null, 2)}\n`, "utf8");
+  if (!isBrokerSession(session)) {
+    throw new Error("Refusing to persist an unsafe broker session.");
+  }
+  ensureStateDir(cwd);
+  fs.writeFileSync(resolveBrokerStateFile(cwd), `${JSON.stringify(session, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: PRIVATE_FILE_MODE
+  });
 }
 
 export function clearBrokerSession(cwd: string) {

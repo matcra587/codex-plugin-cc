@@ -4,7 +4,12 @@ import { assert } from "./assertions.ts";
 
 import { buildEnv, installFakeCodex } from "./fake-codex-fixture.ts";
 import { initGitRepo, makeTempDir, run } from "./helpers.ts";
-import { loadBrokerSession, saveBrokerSession } from "../plugins/codex/scripts/lib/broker-lifecycle.ts";
+import {
+  createBrokerSessionDir,
+  loadBrokerSession,
+  saveBrokerSession
+} from "../plugins/codex/scripts/lib/broker-lifecycle.ts";
+import { createBrokerEndpoint } from "../plugins/codex/scripts/lib/broker-endpoint.ts";
 import { resolveStateDir } from "../plugins/codex/scripts/lib/state.ts";
 
 const ROOT = path.resolve(path.dirname(Bun.fileURLToPath(import.meta.url)), "..");
@@ -2236,9 +2241,15 @@ test("status reports shared session runtime when a lazy broker is active", () =>
 test("setup and status honor --cwd when reading shared session runtime", () => {
   const targetWorkspace = makeTempDir();
   const invocationWorkspace = makeTempDir();
+  const sessionDir = createBrokerSessionDir();
+  const endpoint = createBrokerEndpoint(sessionDir);
 
   saveBrokerSession(targetWorkspace, {
-    endpoint: "unix:/tmp/fake-broker.sock"
+    endpoint,
+    pidFile: path.join(sessionDir, "broker.pid"),
+    logFile: path.join(sessionDir, "broker.log"),
+    sessionDir,
+    pid: process.pid
   });
 
   const status = run("bun", [SCRIPT, "status", "--cwd", targetWorkspace], {
@@ -2253,5 +2264,5 @@ test("setup and status honor --cwd when reading shared session runtime", () => {
   assert.equal(setup.status, 0, setup.stderr);
   const payload = JSON.parse(setup.stdout);
   assert.equal(payload.sessionRuntime.mode, "shared");
-  assert.equal(payload.sessionRuntime.endpoint, "unix:/tmp/fake-broker.sock");
+  assert.equal(payload.sessionRuntime.endpoint, endpoint);
 });

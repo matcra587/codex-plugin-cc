@@ -27,7 +27,7 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
   try {
     const result = Bun.spawnSync([command, ...args], {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-      ...(options.env === undefined ? {} : { env: options.env }),
+      env: options.env ?? process.env,
       stdin: options.input == null ? undefined : new TextEncoder().encode(options.input),
       stdout: "pipe",
       stderr: "pipe"

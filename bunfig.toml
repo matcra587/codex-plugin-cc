@@ -21,4 +21,5 @@ bun = true
 shell = "bun"
 
 [test]
+preload = ["./tests/preload.ts"]
 root = "./tests"

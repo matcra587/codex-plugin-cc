@@ -5,6 +5,7 @@ import { assert } from "./assertions.ts";
 import type { JobRecord } from "../plugins/codex/scripts/lib/domain.ts";
 import { makeTempDir } from "./helpers.ts";
 import {
+  ensureStateDir,
   loadState,
   resolveJobFile,
   resolveJobLogFile,
@@ -13,13 +14,61 @@ import {
   saveState
 } from "../plugins/codex/scripts/lib/state.ts";
 
-test("resolveStateDir uses a temp-backed per-workspace directory", () => {
+test("resolveStateDir uses a user-private fallback outside the shared temp directory", () => {
   const workspace = makeTempDir();
-  const stateDir = resolveStateDir(workspace);
+  const userHome = makeTempDir();
+  const previousPluginDataDir = process.env.CLAUDE_PLUGIN_DATA;
+  const previousXdgStateHome = process.env.XDG_STATE_HOME;
+  const previousHome = process.env.HOME;
+  delete process.env.CLAUDE_PLUGIN_DATA;
+  delete process.env.XDG_STATE_HOME;
+  process.env.HOME = userHome;
 
-  assert.equal(stateDir.startsWith(os.tmpdir()), true);
-  assert.match(path.basename(stateDir), /.+-[a-f0-9]{16}$/);
-  assert.match(stateDir, new RegExp(`^${os.tmpdir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  try {
+    const stateDir = resolveStateDir(workspace);
+
+    assert.equal(stateDir.startsWith(path.join(userHome, ".local", "state", "codex-plugin-cc")), true);
+    assert.equal(stateDir.startsWith(path.join(os.tmpdir(), "codex-companion")), false);
+    assert.match(path.basename(stateDir), /.+-[a-f0-9]{16}$/);
+  } finally {
+    if (previousPluginDataDir == null) {
+      delete process.env.CLAUDE_PLUGIN_DATA;
+    } else {
+      process.env.CLAUDE_PLUGIN_DATA = previousPluginDataDir;
+    }
+    if (previousXdgStateHome == null) {
+      delete process.env.XDG_STATE_HOME;
+    } else {
+      process.env.XDG_STATE_HOME = previousXdgStateHome;
+    }
+    if (previousHome == null) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+  }
+});
+
+test("ensureStateDir creates private workspace and job directories", async () => {
+  const workspace = makeTempDir();
+  const pluginDataDir = makeTempDir();
+  const previousPluginDataDir = process.env.CLAUDE_PLUGIN_DATA;
+  process.env.CLAUDE_PLUGIN_DATA = pluginDataDir;
+
+  try {
+    ensureStateDir(workspace);
+
+    const stateMode = (await Bun.file(resolveStateDir(workspace)).stat()).mode & 0o777;
+    const jobsMode = (await Bun.file(path.dirname(resolveJobFile(workspace, "job"))).stat()).mode & 0o777;
+    assert.equal(stateMode, 0o700);
+    assert.equal(jobsMode, 0o700);
+  } finally {
+    if (previousPluginDataDir == null) {
+      delete process.env.CLAUDE_PLUGIN_DATA;
+    } else {
+      process.env.CLAUDE_PLUGIN_DATA = previousPluginDataDir;
+    }
+  }
 });
 
 test("resolveStateDir uses CLAUDE_PLUGIN_DATA when it is provided", () => {
@@ -133,4 +182,35 @@ test("loadState drops malformed persisted jobs", () => {
     loadState(workspace).jobs.map((job) => job.id),
     ["valid"]
   );
+});
+
+test("loadState rejects persisted job paths outside the private jobs directory", () => {
+  const workspace = makeTempDir();
+  const unrelatedFile = path.join(workspace, "keep.txt");
+  const stateFile = resolveStateFile(workspace);
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  fs.writeFileSync(unrelatedFile, "keep\n", "utf8");
+  fs.writeFileSync(
+    stateFile,
+    `${JSON.stringify({
+      version: 1,
+      config: { stopReviewGate: false },
+      jobs: [
+        {
+          id: "poisoned",
+          status: "completed",
+          logFile: unrelatedFile
+        },
+        {
+          id: "../../keep",
+          status: "completed"
+        }
+      ]
+    })}\n`,
+    "utf8"
+  );
+
+  assert.deepEqual(loadState(workspace).jobs, []);
+  saveState(workspace, loadState(workspace));
+  assert.equal(fs.existsSync(unrelatedFile), true);
 });

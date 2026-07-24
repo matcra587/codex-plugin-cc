@@ -6,10 +6,14 @@ import { resolveWorkspaceRoot } from "./workspace.ts";
 
 const STATE_VERSION = 1;
 const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
-const FALLBACK_STATE_ROOT_DIR = path.join(os.tmpdir(), "codex-companion");
+const XDG_STATE_HOME_ENV = "XDG_STATE_HOME";
+const FALLBACK_STATE_DIR_NAME = "codex-plugin-cc";
 const STATE_FILE_NAME = "state.json";
 const JOBS_DIR_NAME = "jobs";
 const MAX_JOBS = 50;
+const PRIVATE_DIRECTORY_MODE = 0o700;
+const PRIVATE_FILE_MODE = 0o600;
+const SAFE_JOB_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -38,7 +42,11 @@ export function resolveStateDir(cwd: string): string {
   const slug = slugSource.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "workspace";
   const hash = new Bun.CryptoHasher("sha256").update(canonicalWorkspaceRoot).digest("hex").slice(0, 16);
   const pluginDataDir = process.env[PLUGIN_DATA_ENV];
-  const stateRoot = pluginDataDir ? path.join(pluginDataDir, "state") : FALLBACK_STATE_ROOT_DIR;
+  const xdgStateHome = process.env[XDG_STATE_HOME_ENV];
+  const userStateHome = xdgStateHome || path.join(os.homedir(), ".local", "state");
+  const stateRoot = pluginDataDir
+    ? path.join(pluginDataDir, "state")
+    : path.join(userStateHome, FALLBACK_STATE_DIR_NAME);
   return path.join(stateRoot, `${slug}-${hash}`);
 }
 
@@ -51,7 +59,32 @@ export function resolveJobsDir(cwd: string): string {
 }
 
 export function ensureStateDir(cwd: string): void {
-  fs.mkdirSync(resolveJobsDir(cwd), { recursive: true });
+  fs.mkdirSync(resolveStateDir(cwd), { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  fs.mkdirSync(resolveJobsDir(cwd), { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+}
+
+function isSafeJobId(jobId: string): boolean {
+  return SAFE_JOB_ID_PATTERN.test(jobId) && jobId !== "." && jobId !== "..";
+}
+
+function isPathInside(parent: string, candidate: string): boolean {
+  if (!path.isAbsolute(candidate)) {
+    return false;
+  }
+  const relativePath = path.relative(path.resolve(parent), path.resolve(candidate));
+  return (
+    relativePath.length > 0 &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativePath)
+  );
+}
+
+function isPersistedJobRecord(cwd: string, value: unknown): value is JobRecord {
+  if (!isJobRecord(value) || !isSafeJobId(value.id)) {
+    return false;
+  }
+  return value.logFile == null || isPathInside(resolveJobsDir(cwd), value.logFile);
 }
 
 export function loadState(cwd: string): CompanionState {
@@ -76,7 +109,9 @@ export function loadState(cwd: string): CompanionState {
     return {
       version: typeof parsed.version === "number" ? parsed.version : STATE_VERSION,
       config,
-      jobs: Array.isArray(parsed.jobs) ? parsed.jobs.filter(isJobRecord) : []
+      jobs: Array.isArray(parsed.jobs)
+        ? parsed.jobs.filter((job) => isPersistedJobRecord(cwd, job))
+        : []
     };
   } catch {
     return defaultState();
@@ -98,7 +133,7 @@ function removeFileIfExists(filePath: string | null | undefined): void {
 export function saveState(cwd: string, state: CompanionState): CompanionState {
   const previousJobs = loadState(cwd).jobs;
   ensureStateDir(cwd);
-  const nextJobs = pruneJobs(state.jobs ?? []);
+  const nextJobs = pruneJobs((state.jobs ?? []).filter((job) => isPersistedJobRecord(cwd, job)));
   const nextState = {
     version: STATE_VERSION,
     config: {
@@ -117,7 +152,10 @@ export function saveState(cwd: string, state: CompanionState): CompanionState {
     removeFileIfExists(job.logFile);
   }
 
-  fs.writeFileSync(resolveStateFile(cwd), `${JSON.stringify(nextState, null, 2)}\n`, "utf8");
+  fs.writeFileSync(resolveStateFile(cwd), `${JSON.stringify(nextState, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: PRIVATE_FILE_MODE
+  });
   return nextState;
 }
 
@@ -174,9 +212,15 @@ export function getConfig(cwd: string): CompanionConfig {
 }
 
 export function writeJobFile(cwd: string, jobId: string, payload: unknown): string {
+  if (!isSafeJobId(jobId)) {
+    throw new Error(`Unsafe job id: ${jobId}`);
+  }
   ensureStateDir(cwd);
   const jobFile = resolveJobFile(cwd, jobId);
-  fs.writeFileSync(jobFile, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  fs.writeFileSync(jobFile, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: PRIVATE_FILE_MODE
+  });
   return jobFile;
 }
 
@@ -195,11 +239,17 @@ function removeJobFile(jobFile: string): void {
 }
 
 export function resolveJobLogFile(cwd: string, jobId: string): string {
+  if (!isSafeJobId(jobId)) {
+    throw new Error(`Unsafe job id: ${jobId}`);
+  }
   ensureStateDir(cwd);
   return path.join(resolveJobsDir(cwd), `${jobId}.log`);
 }
 
 export function resolveJobFile(cwd: string, jobId: string): string {
+  if (!isSafeJobId(jobId)) {
+    throw new Error(`Unsafe job id: ${jobId}`);
+  }
   ensureStateDir(cwd);
   return path.join(resolveJobsDir(cwd), `${jobId}.json`);
 }

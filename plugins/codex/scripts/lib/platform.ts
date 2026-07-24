@@ -230,7 +230,7 @@ function existsSync(file: PathLike): boolean {
   return callPath(libc.symbols.access, resolve(asPath(file)), 0) === 0;
 }
 
-function mkdirSync(directory: PathLike, options: { recursive?: boolean } = {}) {
+function mkdirSync(directory: PathLike, options: { recursive?: boolean; mode?: number } = {}): void {
   const directoryPath = resolve(asPath(directory));
   const targets = options.recursive
     ? directoryPath
@@ -240,9 +240,17 @@ function mkdirSync(directory: PathLike, options: { recursive?: boolean } = {}) {
     : [directoryPath];
 
   for (const target of targets) {
-    if (callPath(libc.symbols.mkdir, target, 0o777) !== 0 && !isDirectory(target)) {
+    const requestedMode = target === directoryPath ? options.mode ?? 0o777 : 0o777;
+    if (callPath(libc.symbols.mkdir, target, requestedMode) !== 0 && !isDirectory(target)) {
       throw new Error(`Unable to create directory ${target}`);
     }
+  }
+
+  if (
+    options.mode !== undefined &&
+    callPath(libc.symbols.chmod, directoryPath, options.mode) !== 0
+  ) {
+    throw new Error(`Unable to change mode for ${directoryPath}`);
   }
 }
 
