@@ -366,6 +366,25 @@ test("task reports the actual Codex auth error when the run is rejected", () => 
   assert.match(result.stderr, /authentication expired; run codex login/);
 });
 
+test("task fails visibly and records failure when the runtime disconnects mid-turn", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir, "disconnect-during-turn");
+  initGitRepo(repo);
+
+  const result = run("bun", [SCRIPT, "task", "diagnose the failing test"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /runtime connection closed before the turn completed/i);
+
+  const state = JSON.parse(fs.readFileSync(path.join(resolveStateDir(repo), "state.json"), "utf8"));
+  assert.equal(state.jobs[0].status, "failed");
+  assert.match(state.jobs[0].errorMessage, /runtime connection closed before the turn completed/i);
+});
+
 test("review accepts the quoted raw argument style for built-in base-branch review", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
@@ -1848,6 +1867,69 @@ test("cancel sends turn interrupt to the shared app-server before killing a brok
   assert.equal(cancelPayload.status, "cancelled");
   assert.equal(cancelPayload.turnInterruptAttempted, true);
   assert.equal(cancelPayload.turnInterrupted, true);
+
+  await waitFor(() => {
+    const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));
+    return fakeState.lastInterrupt ?? null;
+  });
+
+  const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));
+  assert.deepEqual(fakeState.lastInterrupt, {
+    threadId: runningJob.threadId,
+    turnId: runningJob.turnId
+  });
+
+  const cleanup = run("bun", [SESSION_HOOK, "SessionEnd"], {
+    cwd: repo,
+    env,
+    input: JSON.stringify({
+      hook_event_name: "SessionEnd",
+      cwd: repo
+    })
+  });
+  assert.equal(cleanup.status, 0, cleanup.stderr);
+});
+
+test("broker interrupts an ownerless turn when its worker disconnects", async () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const fakeStatePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir, "interruptible-slow-task");
+  initGitRepo(repo);
+
+  const env = buildEnv(binDir);
+  const launched = run("bun", [SCRIPT, "task", "--background", "--json", "investigate the flaky worker timeout"], {
+    cwd: repo,
+    env
+  });
+  assert.equal(launched.status, 0, launched.stderr);
+  const jobId = JSON.parse(launched.stdout).jobId;
+
+  const stateDir = resolveStateDir(repo);
+  const runningJob = await waitFor(() => {
+    const state = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8"));
+    const job = state.jobs.find(
+      (candidate: { id: string; status?: string; threadId?: string; turnId?: string; pid?: number }) =>
+        candidate.id === jobId
+    );
+    return job?.status === "running" && job.threadId && job.turnId && job.pid ? job : null;
+  }, { timeoutMs: 15_000 });
+
+  const brokerSession = loadBrokerSession(repo);
+  if (!brokerSession?.pid) {
+    throw new Error("Expected a persisted broker session.");
+  }
+  cleanupProcessGroups.add(runningJob.pid);
+  cleanupProcessGroups.add(brokerSession.pid);
+  const brokerParent = run("ps", ["-o", "ppid=", "-p", String(brokerSession.pid)]);
+  assert.equal(brokerParent.status, 0, brokerParent.stderr);
+  assert.equal(Number(brokerParent.stdout.trim()), 1);
+
+  try {
+    process.kill(-runningJob.pid, "SIGKILL");
+  } catch {
+    process.kill(runningJob.pid, "SIGKILL");
+  }
 
   await waitFor(() => {
     const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));

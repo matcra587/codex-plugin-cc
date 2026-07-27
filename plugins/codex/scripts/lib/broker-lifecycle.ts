@@ -8,6 +8,7 @@ export const LOG_FILE_ENV = "CODEX_COMPANION_APP_SERVER_LOG_FILE";
 const BROKER_STATE_FILE = "broker.json";
 const BROKER_SESSION_PREFIX = "cxc-";
 const PRIVATE_FILE_MODE = 0o600;
+export const EXISTING_BROKER_PROBE_TIMEOUT_MS = 1000;
 
 export interface BrokerSession {
   endpoint: string;
@@ -62,9 +63,11 @@ function isBrokerSession(value: unknown): value is Required<BrokerSession> {
 interface EnsureBrokerSessionOptions {
   createBrokerEndpoint?: (sessionDir: string) => string;
   env?: Record<string, string | undefined> | undefined;
+  existingProbeTimeoutMs?: number;
   killProcess?: ((pid: number) => void) | null;
   scriptPath?: string;
   timeoutMs?: number;
+  waitForBrokerEndpoint?: typeof waitForBrokerEndpoint;
 }
 
 interface TeardownBrokerSessionOptions {
@@ -147,17 +150,39 @@ export function spawnBrokerProcess({
   logFile: string;
   env?: Record<string, string | undefined>;
 }) {
-  const log = Bun.file(logFile);
-  const child = Bun.spawn([process.execPath, scriptPath, "serve", "--endpoint", endpoint, "--cwd", cwd, "--pid-file", pidFile], {
-    cwd,
-    env,
-    detached: true,
-    stdin: "ignore",
-    stdout: log,
-    stderr: log
-  });
-  child.unref();
-  return child;
+  const launched = Bun.spawnSync(
+    [
+      process.execPath,
+      scriptPath,
+      "launch",
+      "--endpoint",
+      endpoint,
+      "--cwd",
+      cwd,
+      "--pid-file",
+      pidFile,
+      "--log-file",
+      logFile
+    ],
+    {
+      cwd,
+      env,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe"
+    }
+  );
+  const detail = launched.stderr.toString().trim();
+  if (launched.exitCode !== 0) {
+    throw new Error(
+      `Unable to launch the shared Codex broker${detail ? `: ${detail}` : "."}`
+    );
+  }
+  const pid = Number(launched.stdout.toString().trim());
+  if (!Number.isSafeInteger(pid) || pid <= 1) {
+    throw new Error("Broker launcher did not return a valid process id.");
+  }
+  return { pid };
 }
 
 function resolveBrokerStateFile(cwd: string) {
@@ -196,20 +221,32 @@ export function clearBrokerSession(cwd: string) {
   }
 }
 
-async function isBrokerEndpointReady(endpoint: string | null | undefined) {
+async function isBrokerEndpointReady(
+  endpoint: string | null | undefined,
+  waitForEndpoint: typeof waitForBrokerEndpoint,
+  timeoutMs: number
+) {
   if (!endpoint) {
     return false;
   }
   try {
-    return await waitForBrokerEndpoint(endpoint, 150);
+    return await waitForEndpoint(endpoint, timeoutMs);
   } catch {
     return false;
   }
 }
 
 export async function ensureBrokerSession(cwd: string, options: EnsureBrokerSessionOptions = {}) {
+  const waitForEndpoint = options.waitForBrokerEndpoint ?? waitForBrokerEndpoint;
   const existing = loadBrokerSession(cwd);
-  if (existing && (await isBrokerEndpointReady(existing.endpoint))) {
+  if (
+    existing &&
+    (await isBrokerEndpointReady(
+      existing.endpoint,
+      waitForEndpoint,
+      options.existingProbeTimeoutMs ?? EXISTING_BROKER_PROBE_TIMEOUT_MS
+    ))
+  ) {
     return existing;
   }
 
@@ -243,7 +280,7 @@ export async function ensureBrokerSession(cwd: string, options: EnsureBrokerSess
     env: options.env ?? process.env
   });
 
-  const ready = await waitForBrokerEndpoint(endpoint, options.timeoutMs ?? 2000);
+  const ready = await waitForEndpoint(endpoint, options.timeoutMs ?? 2000);
   if (!ready) {
     teardownBrokerSession({
       endpoint,

@@ -2,6 +2,8 @@ import { test } from "bun:test";
 
 import {
   createBrokerSessionDir,
+  ensureBrokerSession,
+  EXISTING_BROKER_PROBE_TIMEOUT_MS,
   loadBrokerSession,
   saveBrokerSession
 } from "../plugins/codex/scripts/lib/broker-lifecycle.ts";
@@ -66,4 +68,29 @@ test("loadBrokerSession rejects paths outside its private session directory", ()
   });
 
   assert.equal(loadBrokerSession(workspace), null);
+});
+
+test("ensureBrokerSession gives an existing broker a meaningful readiness window", async () => {
+  const workspace = makeTempDir();
+  const sessionDir = createBrokerSessionDir();
+  const session = {
+    endpoint: createBrokerEndpoint(sessionDir),
+    pidFile: path.join(sessionDir, "broker.pid"),
+    logFile: path.join(sessionDir, "broker.log"),
+    sessionDir,
+    pid: process.pid
+  };
+  saveBrokerSession(workspace, session);
+
+  let observedTimeout = 0;
+  const resolved = await ensureBrokerSession(workspace, {
+    waitForBrokerEndpoint: async (_endpoint, timeoutMs) => {
+      observedTimeout = timeoutMs ?? 0;
+      return true;
+    }
+  });
+
+  assert.deepEqual(resolved, session);
+  assert.equal(observedTimeout, EXISTING_BROKER_PROBE_TIMEOUT_MS);
+  assert.equal(observedTimeout >= 1000, true);
 });

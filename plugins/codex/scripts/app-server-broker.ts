@@ -21,6 +21,11 @@ interface BrokerSocketData {
   queue: Promise<void>;
 }
 
+interface ActiveStreamTurn {
+  threadId: string;
+  turnId: string;
+}
+
 const APP_SERVER_METHODS: ReadonlySet<string> = new Set<AppServerMethod>([
   "initialize",
   "account/read",
@@ -68,6 +73,23 @@ function buildStreamThreadIds(method: AppServerMethod, params: unknown, result: 
   return threadIds;
 }
 
+function buildActiveStreamTurn(
+  method: AppServerMethod,
+  params: unknown,
+  result: unknown
+): ActiveStreamTurn | null {
+  if (method !== "turn/start" && method !== "review/start") {
+    return null;
+  }
+  const turn = isRecord(result) && isRecord(result.turn) ? result.turn : null;
+  const turnId = turn ? stringProperty(turn, "id") : null;
+  const threadId =
+    method === "review/start"
+      ? stringProperty(result, "reviewThreadId")
+      : stringProperty(params, "threadId");
+  return threadId && turnId ? { threadId, turnId } : null;
+}
+
 function buildJsonRpcError(code: number, message: string, data?: unknown) {
   return data === undefined ? { code, message } : { code, message, data };
 }
@@ -94,12 +116,12 @@ function writePidFile(pidFile: string | null): void {
 
 async function main(): Promise<void> {
   const [subcommand, ...argv] = process.argv.slice(2);
-  if (subcommand !== "serve") {
-    throw new Error("Usage: bun scripts/app-server-broker.ts serve --endpoint <value> [--cwd <path>] [--pid-file <path>]");
+  if (subcommand !== "launch" && subcommand !== "serve") {
+    throw new Error("Usage: bun scripts/app-server-broker.ts <launch|serve> --endpoint <value> [--cwd <path>] [--pid-file <path>] [--log-file <path>]");
   }
 
   const { options } = parseArgs(argv, {
-    valueOptions: ["cwd", "pid-file", "endpoint"]
+    valueOptions: ["cwd", "pid-file", "log-file", "endpoint"]
   });
 
   if (!options.endpoint) {
@@ -110,21 +132,70 @@ async function main(): Promise<void> {
   const endpoint = String(options.endpoint);
   const listenTarget = parseBrokerEndpoint(endpoint);
   const pidFile = options["pid-file"] ? path.resolve(options["pid-file"]) : null;
+  const logFile = options["log-file"] ? path.resolve(options["log-file"]) : null;
+
+  if (subcommand === "launch") {
+    if (!pidFile || !logFile) {
+      throw new Error("Broker launch requires --pid-file and --log-file.");
+    }
+    const scriptPath = Bun.fileURLToPath(import.meta.url);
+    const log = Bun.file(logFile);
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        scriptPath,
+        "serve",
+        "--endpoint",
+        endpoint,
+        "--cwd",
+        cwd,
+        "--pid-file",
+        pidFile
+      ],
+      {
+        cwd,
+        env: process.env,
+        detached: true,
+        stdin: "ignore",
+        stdout: log,
+        stderr: log
+      }
+    );
+    child.unref();
+    process.stdout.write(`${child.pid}\n`);
+    return;
+  }
+
   writePidFile(pidFile);
 
   const appClient = await CodexAppServerClient.connect(cwd, { disableBroker: true });
   let activeRequestSocket: Bun.Socket<BrokerSocketData> | null = null;
   let activeStreamSocket: Bun.Socket<BrokerSocketData> | null = null;
   let activeStreamThreadIds: Set<string> | null = null;
+  let activeStreamTurn: ActiveStreamTurn | null = null;
+  let shuttingDown = false;
   const sockets = new Set<Bun.Socket<BrokerSocketData>>();
+
+  async function interruptOwnerlessTurn(turn: ActiveStreamTurn): Promise<void> {
+    try {
+      await appClient.request("turn/interrupt", turn);
+    } catch {
+      // The runtime may already have completed or exited.
+    }
+  }
 
   function clearSocketOwnership(socket: Bun.Socket<BrokerSocketData>): void {
     if (activeRequestSocket === socket) {
       activeRequestSocket = null;
     }
     if (activeStreamSocket === socket) {
+      const ownerlessTurn = activeStreamTurn;
       activeStreamSocket = null;
       activeStreamThreadIds = null;
+      activeStreamTurn = null;
+      if (ownerlessTurn && !shuttingDown) {
+        void interruptOwnerlessTurn(ownerlessTurn);
+      }
     }
   }
 
@@ -139,6 +210,7 @@ async function main(): Promise<void> {
       if (!threadId || !activeStreamThreadIds || activeStreamThreadIds.has(threadId)) {
         activeStreamSocket = null;
         activeStreamThreadIds = null;
+        activeStreamTurn = null;
         if (activeRequestSocket === target) {
           activeRequestSocket = null;
         }
@@ -147,6 +219,10 @@ async function main(): Promise<void> {
   }
 
   async function shutdown(server: Bun.UnixSocketListener<BrokerSocketData>): Promise<void> {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
     for (const socket of sockets) {
       socket.end();
     }
@@ -260,8 +336,14 @@ async function main(): Promise<void> {
         const result = await requestAppServer(appClient, message.method, message.params ?? {});
         send(socket, { id: message.id, result });
         if (isStreaming) {
-          activeStreamSocket = socket;
-          activeStreamThreadIds = buildStreamThreadIds(message.method, message.params ?? {}, result);
+          const streamTurn = buildActiveStreamTurn(message.method, message.params ?? {}, result);
+          if (sockets.has(socket)) {
+            activeStreamSocket = socket;
+            activeStreamThreadIds = buildStreamThreadIds(message.method, message.params ?? {}, result);
+            activeStreamTurn = streamTurn;
+          } else if (streamTurn) {
+            void interruptOwnerlessTurn(streamTurn);
+          }
         }
         if (activeRequestSocket === socket) {
           activeRequestSocket = null;
@@ -312,6 +394,8 @@ async function main(): Promise<void> {
       }
     }
   });
+
+  void appClient.exitPromise.then(() => shutdown(server)).catch(() => shutdown(server));
 
   process.on("SIGTERM", async () => {
     await shutdown(server);

@@ -680,7 +680,20 @@ async function captureTurn<Response extends TurnResponse>(
       completeTurn(state, response.turn);
     }
 
-    return await state.completion;
+    const runtimeExit = client.exitPromise.then(() => {
+      if (state.completed) {
+        return state;
+      }
+      const detail = client.exitError ? `: ${errorMessage(client.exitError)}` : "";
+      const error = new Error(
+        `Codex runtime connection closed before the turn completed${detail}`,
+        client.exitError ? { cause: client.exitError } : undefined
+      );
+      emitProgress(state.onProgress, error.message, "failed");
+      throw error;
+    });
+
+    return await Promise.race([state.completion, runtimeExit]);
   } finally {
     clearCompletionTimer(state);
     client.setNotificationHandler(previousHandler ?? null);
