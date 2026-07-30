@@ -617,6 +617,66 @@ test("task-resume-candidate returns the latest rescue thread from the current se
   assert.equal(payload.candidate.threadId, "thr_current");
 });
 
+// Claude reuses a conversation's session id when it is reopened, so a finished
+// task has to survive the SessionEnd of the session that created it. Deleting
+// it made --resume report no previous task while the Codex thread was live.
+test("task-resume-candidate still finds a task after its session ended", () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const stateDir = resolveStateDir(workspace);
+  const jobsDir = path.join(stateDir, "jobs");
+  fs.mkdirSync(jobsDir, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(stateDir, "state.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        config: { stopReviewGate: false },
+        jobs: [
+          {
+            id: "task-current",
+            status: "completed",
+            title: "Codex Task",
+            jobClass: "task",
+            sessionId: "sess-current",
+            threadId: "thr_current",
+            summary: "Investigate the flaky test",
+            updatedAt: "2026-03-24T20:00:00.000Z"
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  const sessionEnv = { ...process.env, CODEX_COMPANION_SESSION_ID: "sess-current" };
+  const ended = run("bun", [SESSION_HOOK, "SessionEnd"], {
+    cwd: workspace,
+    env: sessionEnv,
+    input: JSON.stringify({
+      hook_event_name: "SessionEnd",
+      session_id: "sess-current",
+      cwd: workspace
+    })
+  });
+  assert.equal(ended.status, 0, ended.stderr);
+
+  // Reopening the conversation hands back the same session id.
+  const result = run("bun", [SCRIPT, "task-resume-candidate", "--json"], {
+    cwd: workspace,
+    env: sessionEnv
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.available, true);
+  assert.equal(payload.candidate.id, "task-current");
+  assert.equal(payload.candidate.threadId, "thr_current");
+});
+
 test("task --resume-last does not resume a task from another Claude session", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
@@ -1971,7 +2031,7 @@ test("broker interrupts an ownerless turn when its worker disconnects", async ()
   assert.equal(cleanup.status, 0, cleanup.stderr);
 });
 
-test("session end fully cleans up jobs for the ending session", async () => {
+test("session end tears down active jobs but keeps finished ones for resume", async () => {
   const repo = makeTempDir();
   initGitRepo(repo);
   fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
@@ -2064,9 +2124,20 @@ test("session end fully cleans up jobs for the ending session", async () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(fs.existsSync(otherSessionLog), true);
   assert.equal(fs.existsSync(otherJobFile), true);
+  // The ending session's finished job keeps its artifacts; only the job that
+  // was still in flight has its log and record reaped.
+  assert.equal(fs.existsSync(completedLog), true);
+  assert.equal(fs.existsSync(completedJobFile), true);
+  assert.equal(fs.existsSync(runningLog), false);
+  assert.equal(fs.existsSync(runningJobFile), false);
   assert.deepEqual(
     fs.readdirSync(path.dirname(otherJobFile)).sort(),
-    [path.basename(otherJobFile), path.basename(otherSessionLog)].sort()
+    [
+      path.basename(otherJobFile),
+      path.basename(otherSessionLog),
+      path.basename(completedJobFile),
+      path.basename(completedLog)
+    ].sort()
   );
 
   await waitFor(() => {
@@ -2079,12 +2150,11 @@ test("session end fully cleans up jobs for the ending session", async () => {
   });
 
   const state = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8"));
-  assert.deepEqual(
-    state.jobs.map((job: { id: string }) => job.id),
-    ["review-other"]
-  );
-  const otherJob = state.jobs[0];
+  assert.deepEqual(state.jobs.map((job: { id: string }) => job.id).sort(), ["review-completed", "review-other"]);
+  const otherJob = state.jobs.find((job: { id: string }) => job.id === "review-other");
   assert.equal(otherJob.logFile, otherSessionLog);
+  const completedJob = state.jobs.find((job: { id: string }) => job.id === "review-completed");
+  assert.equal(completedJob.logFile, completedLog);
 });
 
 test("stop hook runs a stop-time review task and blocks on findings when the review gate is enabled", () => {

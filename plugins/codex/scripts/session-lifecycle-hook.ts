@@ -79,7 +79,15 @@ function cleanupSessionJobs(cwd: string | undefined, sessionId: string | undefin
       if (job.sessionId !== sessionId) {
         return true;
       }
-      if ((job.status === "queued" || job.status === "running") && job.pid != null) {
+      // Claude reuses a conversation's session id when it is reopened, so
+      // finished jobs must outlive the session that created them. Dropping
+      // them here is what made `/codex:rescue --resume` and the resume
+      // candidate lookup report no previous task while the Codex thread was
+      // still live. Only work that is still in flight gets torn down.
+      if (job.status !== "queued" && job.status !== "running") {
+        return true;
+      }
+      if (job.pid != null) {
         runningPids.push(job.pid);
       }
       return false;
