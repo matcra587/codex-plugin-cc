@@ -54,6 +54,12 @@ export function resolveIdleTimeoutMs(raw: string | undefined): number {
   if (raw === undefined) {
     return DEFAULT_IDLE_TIMEOUT_MS;
   }
+  // Number("") and Number(" ") are 0, so an exported-but-empty variable would
+  // silently disable reaping — the very leak this exists to stop. Only an
+  // explicit number counts.
+  if (raw.trim() === "") {
+    return DEFAULT_IDLE_TIMEOUT_MS;
+  }
   const parsed = Number(raw);
   // 0 or a negative value disables reaping; anything unparsable falls back
   // rather than silently disabling it.
@@ -178,7 +184,14 @@ async function main(): Promise<void> {
   let activeStreamTurn: ActiveStreamTurn | null = null;
   let shuttingDown = false;
   let brokerIdleTimer: ReturnType<typeof setInterval> | null = null;
+  let lastActivityAt = Date.now();
   const sockets = new Set<Bun.Socket<BrokerSocketData>>();
+
+  // Stamped on every real event rather than inferred on a timer, so an
+  // operation that starts and finishes between two ticks still counts.
+  function markBrokerActivity(): void {
+    lastActivityAt = Date.now();
+  }
 
   async function interruptOwnerlessTurn(turn: ActiveStreamTurn): Promise<void> {
     try {
@@ -231,14 +244,19 @@ async function main(): Promise<void> {
       clearInterval(brokerIdleTimer);
       brokerIdleTimer = null;
     }
-    for (const socket of sockets) {
-      socket.end();
-    }
-    await appClient.close().catch(() => {});
+    // Stop listening and remove the socket before tearing the child down.
+    // Closing the app-server client first leaves the endpoint accepting and
+    // answering `initialize` for as long as the child takes to exit, so a
+    // client could connect to a dying broker and then fail its real request
+    // with an error the caller does not retry.
     server.stop(true);
     if (listenTarget.kind === "unix" && fs.existsSync(listenTarget.path)) {
       fs.unlinkSync(listenTarget.path);
     }
+    for (const socket of sockets) {
+      socket.end();
+    }
+    await appClient.close().catch(() => {});
     if (pidFile && fs.existsSync(pidFile)) {
       fs.unlinkSync(pidFile);
     }
@@ -385,8 +403,10 @@ async function main(): Promise<void> {
           queue: Promise.resolve()
         };
         sockets.add(socket);
+        markBrokerActivity();
       },
       data(socket, chunk) {
+        markBrokerActivity();
         socket.data.queue = socket.data.queue
           .then(() => handleSocketData(socket, chunk))
           .catch(() => {
@@ -396,43 +416,37 @@ async function main(): Promise<void> {
       close(socket) {
         sockets.delete(socket);
         clearSocketOwnership(socket);
+        // The disconnect ends an operation, so the idle window starts here.
+        markBrokerActivity();
       },
       error(socket) {
         sockets.delete(socket);
         clearSocketOwnership(socket);
+        markBrokerActivity();
       }
     }
   });
 
   const idleTimeoutMs = resolveIdleTimeoutMs(process.env[IDLE_TIMEOUT_ENV]);
   if (idleTimeoutMs > 0) {
-    let idleSince: number | null = Date.now();
-    const markBusy = (): void => {
-      idleSince = null;
-    };
     const isIdle = (): boolean =>
       sockets.size === 0 && activeStreamTurn === null && activeRequestSocket === null && activeStreamSocket === null;
 
-    // Checked on a timer rather than on disconnect: a client disconnects after
-    // every operation, so a single disconnect is not evidence the session ended.
-    // The interval tracks short timeouts so a small value still reaps promptly.
+    // Sampling state on the tick is not enough: clients connect per operation
+    // and disconnect straight after, so any operation shorter than the interval
+    // falls between two ticks and is never observed. A busy broker would then
+    // look idle for its whole window and reap itself out from under a live
+    // session. markBrokerActivity stamps the real events instead.
     const checkIntervalMs = Math.max(250, Math.min(IDLE_CHECK_INTERVAL_MS, idleTimeoutMs));
     const idleTimer = setInterval(() => {
       if (shuttingDown) {
         return;
       }
-      if (!isIdle()) {
-        markBusy();
-        return;
-      }
-      if (idleSince === null) {
-        idleSince = Date.now();
-        return;
-      }
-      if (Date.now() - idleSince < idleTimeoutMs) {
+      if (!isIdle() || Date.now() - lastActivityAt < idleTimeoutMs) {
         return;
       }
       clearInterval(idleTimer);
+      brokerIdleTimer = null;
       void shutdown(server).then(
         () => process.exit(0),
         () => process.exit(0)

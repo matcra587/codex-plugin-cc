@@ -106,6 +106,9 @@ test("resolveIdleTimeoutMs defaults, disables, and rejects nonsense", () => {
   assert.equal(resolveIdleTimeoutMs(undefined), 30 * 60 * 1000);
   // Unparsable input must fall back rather than silently disable reaping.
   assert.equal(resolveIdleTimeoutMs("not-a-number"), 30 * 60 * 1000);
+  // An exported-but-empty variable must not silently disable reaping.
+  assert.equal(resolveIdleTimeoutMs(""), 30 * 60 * 1000);
+  assert.equal(resolveIdleTimeoutMs("   "), 30 * 60 * 1000);
   assert.equal(resolveIdleTimeoutMs("0"), 0);
   assert.equal(resolveIdleTimeoutMs("-5"), 0);
   assert.equal(resolveIdleTimeoutMs("1500"), 1500);
@@ -116,13 +119,14 @@ function spawnBroker(idleMs: string) {
   const binDir = makeTempDir();
   installFakeCodex(binDir);
   const pidFile = path.join(sessionDir, "broker.pid");
+  const endpoint = createBrokerEndpoint(sessionDir);
   const child = Bun.spawn(
     [
       process.execPath,
       BROKER_SCRIPT,
       "serve",
       "--endpoint",
-      createBrokerEndpoint(sessionDir),
+      endpoint,
       "--pid-file",
       pidFile,
       "--log-file",
@@ -130,7 +134,7 @@ function spawnBroker(idleMs: string) {
     ],
     { cwd: makeTempDir(), env: { ...buildEnv(binDir), [IDLE_TIMEOUT_ENV]: idleMs }, stdout: "ignore", stderr: "ignore" }
   );
-  return { child, pidFile };
+  return { child, pidFile, endpoint };
 }
 
 function exitWithin(child: Bun.Subprocess, ms: number): Promise<number | "timeout"> {
@@ -141,7 +145,8 @@ function exitWithin(child: Bun.Subprocess, ms: number): Promise<number | "timeou
 // hook: nothing reaped it, so it and its Codex child stayed up indefinitely.
 test("an idle broker reaps itself and removes its pid file", async () => {
   const { child, pidFile } = spawnBroker("300");
-  const outcome = await exitWithin(child, 20_000);
+  // Under the control test's survival window, so the pair discriminates.
+  const outcome = await exitWithin(child, 2_000);
   assert.equal(outcome, 0, "the idle broker should exit cleanly");
   assert.equal(fs.existsSync(pidFile), false, "shutdown should remove the pid file");
 });
@@ -155,4 +160,43 @@ test("a broker with reaping disabled stays up while idle", async () => {
   const outcome = await exitWithin(child, 2_000);
   child.kill();
   assert.equal(outcome, "timeout", "the broker should still be running with reaping disabled");
+});
+
+// The idle check used to sample state on its tick, so an operation that began
+// and ended between two ticks was never seen and a broker in steady use reaped
+// itself mid-session.
+test("a broker in steady use is not reaped", async () => {
+  const { child, endpoint } = spawnBroker("600");
+  const socketPath = endpoint.replace(/^unix:/, "");
+
+  const useOnce = () =>
+    new Promise<void>((resolve) => {
+      Bun.connect({
+        unix: socketPath,
+        socket: {
+          open(socket) {
+            socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "thread/list", params: { cwd: "/" } })}\n`);
+          },
+          data(socket) {
+            socket.end();
+            resolve();
+          },
+          error: () => resolve(),
+          close: () => resolve()
+        }
+      }).catch(() => resolve());
+    });
+
+  // Five operations spaced inside the window, spanning several times its length.
+  for (let index = 0; index < 5; index += 1) {
+    await Bun.sleep(300);
+    if (child.exitCode !== null) {
+      break;
+    }
+    await useOnce();
+  }
+
+  const stillRunning = child.exitCode === null;
+  child.kill();
+  assert.equal(stillRunning, true, "steady use must keep the broker alive");
 });
