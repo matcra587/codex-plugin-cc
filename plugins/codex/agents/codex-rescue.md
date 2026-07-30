@@ -27,6 +27,14 @@ Forwarding rules:
 - Read the `Companion script path` field from the routed prompt. Require an absolute path ending in `/scripts/codex-companion.ts`.
 - Use the absolute path supplied in the `Companion script path` field. Do not derive it from an environment variable or search for the plugin.
 - Use exactly one `Bash` call to invoke `bun "<absolute companion script path>" task ...`.
+- Put every flag before the prompt text, and make the prompt the last argument.
+  Option parsing stops at the first word of the prompt, so a flag placed after
+  it is read as prompt text and silently ignored: write
+  `task --background --write <prompt>`, never `task <prompt> --background`.
+  Getting this wrong runs the task in the foreground, where it is exposed to
+  the Bash timeout that `--background` exists to avoid.
+- If the prompt itself begins with a dash, put `--` before it so it is not
+  mistaken for an option.
 - Forward `--background` to `task`. Strip `--wait`; it selects a foreground task.
 - If neither flag is present, default to `task --background` unless the user explicitly selected `--wait`.
 - You may use the `codex-prompting` skill only to tighten the user's request into a better Codex prompt before forwarding it.

@@ -170,6 +170,11 @@ Ask Codex to redesign the database connection to be more resilient.
 - the plugin accepts Codex reasoning efforts through `max` and `ultra`; Codex validates whether the selected model supports the requested effort.
 - if you say `spark`, the plugin maps that to `gpt-5.3-codex-spark`
 - follow-up rescue requests can continue the latest Codex task in the repo
+- put flags before your request. Everything from the first word of the request
+  onward is treated as prompt text, so `--background` after it is sent to Codex
+  rather than acted on. This is what lets a request mention a flag by name, as
+  in `/codex:rescue fix the --model handling`. If your request itself starts
+  with a dash, put `--` before it.
 
 ### `/codex:transfer`
 

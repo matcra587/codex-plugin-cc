@@ -20,7 +20,22 @@
   left an input `\|` as `\\|`, which renders as a literal backslash followed by
   a live pipe and breaks out of the cell, so job summaries could inject table
   structure into `/codex:status`. Reported by CodeQL as
-  `js/incomplete-sanitization`.
+  `js/incomplete-sanitization`. Cells also collapse a lone carriage return,
+  which CommonMark treats as a line ending too.
+- `--help` buried in pasted text no longer replaces a job result with the usage
+  screen. `status`, `result` and `cancel` parse options anywhere in their
+  input, so they now recognise `--help` only as the leading token. Commands
+  ending in free text stop parsing options at the first word of the prompt, so
+  `--help` there remains a real request.
+- `cancel ''` no longer reads an empty job reference and falls through to the
+  latest job.
+
+### Changed
+
+- Documented that flags must precede the prompt text, in the README and in the
+  rescue subagent's instructions. Option parsing stops at the first word of the
+  prompt — that is what lets a request mention a flag by name — so a flag after
+  it is sent to Codex as text rather than acted on.
 
 ## 2.0.2
 
