@@ -38,6 +38,9 @@ test("resolveReviewTarget falls back to branch diff when repo is clean", () => {
 
 test("default branch names with special characters are passed to git literally", () => {
   const cwd = makeTempDir();
+  // This branch name is the injection payload the test asserts is passed to
+  // git verbatim rather than evaluated, so ${IFS} must stay a literal token.
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: injection payload, see above
   const branchName = "main;touch${IFS}branch-helper-output;x";
   const helperOutputPath = path.join(cwd, "branch-helper-output");
   initGitRepo(cwd);

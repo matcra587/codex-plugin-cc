@@ -233,8 +233,8 @@ test("transfer delegates the current Claude session directly to native import", 
       { type: "assistant", cwd: repo, message: { role: "assistant", content: "Initial answer" } },
       { type: "user", cwd: repo, message: { role: "user", content: "/codex:transfer" } }
     ]
-      .map((entry) => JSON.stringify(entry))
-      .join("\n") + "\n",
+      .map((entry) => `${JSON.stringify(entry)}\n`)
+      .join(""),
     "utf8"
   );
   const result = run("bun", [SCRIPT, "transfer", "--json"], {

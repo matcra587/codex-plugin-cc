@@ -1238,7 +1238,7 @@ export async function runAppServerTurn(
   }
 
   return withAppServer(cwd, async (client) => {
-    let threadId;
+    let threadId: string;
 
     if (options.resumeThreadId) {
       emitProgress(options.onProgress, `Resuming thread ${options.resumeThreadId}.`, "starting");
@@ -1253,7 +1253,7 @@ export async function runAppServerTurn(
       const response = await startThread(client, cwd, {
         model: options.model,
         sandbox: options.sandbox,
-        ephemeral: options.persistThread ? false : true,
+        ephemeral: !options.persistThread,
         threadName: options.persistThread ? options.threadName : (options.threadName ?? null)
       });
       threadId = response.thread.id;

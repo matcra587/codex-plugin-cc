@@ -167,7 +167,7 @@ function normalizeReasoningEffort(effort: unknown): ReasoningEffort | null {
 function normalizeArgv(argv: string[]): string[] {
   if (argv.length === 1) {
     const [raw] = argv;
-    if (!raw || !raw.trim()) {
+    if (!raw?.trim()) {
       return [];
     }
     return splitRawArgumentString(raw);

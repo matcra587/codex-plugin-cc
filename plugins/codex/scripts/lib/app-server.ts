@@ -381,6 +381,10 @@ class BrokerCodexAppServerClient extends AppServerClientBase {
   }
 }
 
+// The factory that picks between the broker-backed and spawned clients.
+// Callers depend on the `CodexAppServerClient.connect` name, including two
+// `Awaited<ReturnType<typeof CodexAppServerClient.connect>>` type aliases.
+// biome-ignore lint/complexity/noStaticOnlyClass: named factory, see above
 export class CodexAppServerClient {
   static async connect(cwd: string, options: CodexAppServerClientOptions = {}) {
     let brokerEndpoint: string | null = null;

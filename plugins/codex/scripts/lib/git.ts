@@ -224,7 +224,7 @@ function formatSection(title: string, body: string): string {
 
 function formatUntrackedFile(cwd: string, relativePath: string): string {
   const absolutePath = path.join(cwd, relativePath);
-  let stat;
+  let stat: ReturnType<typeof fs.statSync>;
   try {
     stat = fs.statSync(absolutePath);
   } catch {
@@ -234,7 +234,7 @@ function formatUntrackedFile(cwd: string, relativePath: string): string {
     return `### ${relativePath}\n(skipped: directory)`;
   }
 
-  let buffer;
+  let buffer: Uint8Array;
   try {
     buffer = fs.readFileSync(absolutePath);
   } catch {
@@ -259,7 +259,7 @@ function collectWorkingTreeContext(
   const status = gitChecked(cwd, ["status", "--short", "--untracked-files=all"]).stdout.trim();
   const changedFiles = listUniqueFiles(state.staged, state.unstaged, state.untracked);
 
-  let parts;
+  let parts: string[];
   if (includeDiff) {
     const stagedDiff = gitChecked(cwd, ["diff", "--cached", "--binary", "--no-ext-diff", "--submodule=diff"]).stdout;
     const unstagedDiff = gitChecked(cwd, ["diff", "--binary", "--no-ext-diff", "--submodule=diff"]).stdout;
@@ -344,9 +344,9 @@ export function collectReviewContext(cwd: string, target: ResolvedReviewTarget, 
   const currentBranch = getCurrentBranch(repoRoot);
   const maxInlineFiles = normalizeMaxInlineFiles(options.maxInlineFiles);
   const maxInlineDiffBytes = normalizeMaxInlineDiffBytes(options.maxInlineDiffBytes);
-  let details;
-  let includeDiff;
-  let diffBytes;
+  let details: ReturnType<typeof collectWorkingTreeContext> | ReturnType<typeof collectBranchContext>;
+  let includeDiff: boolean;
+  let diffBytes: number;
 
   if (target.mode === "working-tree") {
     const state = getWorkingTreeState(repoRoot);
