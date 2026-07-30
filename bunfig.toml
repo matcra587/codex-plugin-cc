@@ -11,6 +11,10 @@ globalStore = true
 linker = "isolated"
 # Hold new package releases for 72 hours. Existing locked versions are unaffected.
 minimumReleaseAge = 259200
+# The Codex CLI is exempt: it is the tool this plugin drives, it releases often,
+# and tracking it closely is worth more here than the 72 hour quarantine. Its
+# Clover directive uses a matching 6 hour cooldown.
+minimumReleaseAgeExcludes = ["@openai/codex"]
 # `frozenLockfile` is intentionally omitted: CI uses `bun ci`, while local
 # dependency updates must remain writable.
 
