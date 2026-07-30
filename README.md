@@ -1,3 +1,8 @@
+<!--
+  Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+  See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+-->
+
 # Codex plugin for Claude Code
 
 Use Codex from inside Claude Code for code reviews or to delegate tasks to Codex.

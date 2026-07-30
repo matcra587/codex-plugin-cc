@@ -1,3 +1,6 @@
+// Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+// See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+
 import type { CompanionConfig, JobRecord } from "./domain.ts";
 import type { EnrichedJob } from "./job-control.ts";
 import { isRecord } from "./validation.ts";

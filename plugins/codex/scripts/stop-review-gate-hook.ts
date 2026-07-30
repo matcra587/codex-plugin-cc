@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
 
+// Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+// See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+
 import { getCodexAvailability } from "./lib/codex.ts";
 import type { JobRecord } from "./lib/domain.ts";
 import { sortJobsNewestFirst } from "./lib/job-control.ts";

@@ -1,3 +1,6 @@
+// Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+// See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+
 import { getSessionRuntimeStatus } from "./codex.ts";
 import type { EnvironmentOptions, JobRecord } from "./domain.ts";
 import { fs } from "./platform.ts";

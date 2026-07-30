@@ -4,6 +4,11 @@ argument-hint: "[--background|--wait] [--resume|--fresh] [--model <model|spark>]
 allowed-tools: Bash(bun:*), AskUserQuestion, Agent
 ---
 
+<!--
+  Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+  See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+-->
+
 Invoke the `codex:codex-rescue` subagent via the `Agent` tool (`subagent_type: "codex:codex-rescue"`).
 `codex:codex-rescue` is a subagent, not a skill — do not call `Skill(codex:codex-rescue)` (no such skill) or `Skill(codex:rescue)` (that re-enters this command and hangs the session). The command runs inline so the `Agent` tool stays in scope; forked general-purpose subagents do not expose it.
 The final user-visible response must be Codex's output verbatim.

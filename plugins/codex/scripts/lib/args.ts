@@ -1,3 +1,6 @@
+// Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+// See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+
 export interface ParseArgsConfig<ValueOption extends string = string, BooleanOption extends string = string> {
   valueOptions?: readonly ValueOption[];
   booleanOptions?: readonly BooleanOption[];

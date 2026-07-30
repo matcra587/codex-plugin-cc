@@ -5,6 +5,11 @@ disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash(bun:*), Bash(git:*), AskUserQuestion
 ---
 
+<!--
+  Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+  See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+-->
+
 Run a Codex review through the shared built-in reviewer.
 
 Raw slash-command arguments:

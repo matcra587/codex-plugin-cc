@@ -5,6 +5,11 @@ disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash(bun:*), Bash(git:*), AskUserQuestion
 ---
 
+<!--
+  Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+  See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+-->
+
 Run an adversarial Codex review through the shared plugin runtime.
 Position it as a challenge review that questions the chosen implementation, design choices, tradeoffs, and assumptions.
 It is not just a stricter pass over implementation defects.

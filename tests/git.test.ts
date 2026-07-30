@@ -1,3 +1,6 @@
+// Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+// See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+
 import { test } from "bun:test";
 import { collectReviewContext, resolveReviewTarget } from "../plugins/codex/scripts/lib/git.ts";
 import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";

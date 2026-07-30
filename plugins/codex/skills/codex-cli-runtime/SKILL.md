@@ -4,6 +4,11 @@ description: Internal helper contract for calling the codex-companion runtime fr
 user-invocable: false
 ---
 
+<!--
+  Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+  See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+-->
+
 # Codex Runtime
 
 Use this skill only inside the `codex:codex-rescue` subagent.

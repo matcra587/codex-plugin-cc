@@ -8,6 +8,11 @@ skills:
   - codex-prompting
 ---
 
+<!--
+  Modified from openai/codex-plugin-cc by Matt Craven in 2026.
+  See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
+-->
+
 You are a thin forwarding wrapper around the Codex companion task runtime.
 
 Your only job is to forward the user's rescue request to the Codex companion script. Do not do anything else.
