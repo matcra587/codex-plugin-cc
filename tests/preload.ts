@@ -9,6 +9,13 @@ const pluginDataDir = path.join(testStateRoot, "plugin-data");
 process.env.CLAUDE_PLUGIN_DATA = pluginDataDir;
 process.env.XDG_STATE_HOME = path.join(testStateRoot, "xdg-state");
 
+// Running the suite from inside a live Claude Code session inherits this from
+// the plugin's own SessionStart hook. The companion then scopes `status` and
+// `result` to that session id and hides every fixture job, because fixtures
+// carry no sessionId. Tests that care about session scoping set the variable
+// explicitly in the env they compose, so clearing it here is safe.
+delete process.env.CODEX_COMPANION_SESSION_ID;
+
 afterEach(async () => {
   const stateRoot = path.join(pluginDataDir, "state");
   if (!fs.existsSync(stateRoot)) {
