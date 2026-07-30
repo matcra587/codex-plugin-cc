@@ -8,6 +8,7 @@ import type { AnyParsedOptions, ParseArgsConfig } from "./lib/args.ts";
 import { parseArgs, splitRawArgumentString } from "./lib/args.ts";
 import { resolveClaudeSessionPath } from "./lib/claude-session-transfer.ts";
 import {
+  buildPersistentReviewThreadName,
   buildPersistentTaskThreadName,
   DEFAULT_CONTINUE_PROMPT,
   findLatestTaskThread,
@@ -426,7 +427,9 @@ async function executeReviewRun(request: ReviewRunRequest) {
     const result = await runAppServerReview(request.cwd, {
       target: reviewTarget,
       model: request.model,
-      onProgress: request.onProgress
+      onProgress: request.onProgress,
+      persistThread: true,
+      threadName: buildPersistentReviewThreadName(reviewName, target.label)
     });
     const payload = {
       review: reviewName,
@@ -469,7 +472,9 @@ async function executeReviewRun(request: ReviewRunRequest) {
     model: request.model,
     sandbox: "read-only",
     outputSchema: readOutputSchema(REVIEW_SCHEMA),
-    onProgress: request.onProgress
+    onProgress: request.onProgress,
+    persistThread: true,
+    threadName: buildPersistentReviewThreadName(reviewName, target.label)
   });
   const parsed = parseStructuredOutput(result.finalMessage, {
     status: result.status,

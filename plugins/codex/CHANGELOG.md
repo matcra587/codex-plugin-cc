@@ -5,6 +5,25 @@
 
 # Changelog
 
+## 2.0.1
+
+### Fixed
+
+- The stop-time review gate no longer blocks the turn repeatedly. It ignored
+  `stop_hook_active`, so every forced retry ran another review and blocked
+  again. A review that timed out or errored is never `ok`, so the gate held the
+  turn until Claude Code hit its consecutive-block cap and overrode the hook —
+  worst in exactly the cases the gate was least useful. It now reviews once and
+  yields on the retry.
+- Review and adversarial review persist their Codex thread instead of running
+  it ephemerally. A foreground review whose output was lost left nothing behind:
+  no thread to resume, no stored result. Both paths now leave a recoverable
+  thread named `Codex Companion Review: …`.
+
+  Reviews therefore appear in `codex resume` and in Codex's thread history,
+  where previously they did not. The name is deliberately distinct from the
+  task prefix, so a review can never be picked up by `task --resume-last`.
+
 ## 2.0.0
 
 First release of this fork of [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc),

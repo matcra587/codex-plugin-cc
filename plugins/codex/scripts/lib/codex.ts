@@ -81,6 +81,7 @@ interface CaptureTurnOptions<Response extends TurnResponse> {
 
 const SERVICE_NAME = "claude_code_codex_plugin";
 const TASK_THREAD_PREFIX = "Codex Companion Task";
+const REVIEW_THREAD_PREFIX = "Codex Companion Review";
 const DEFAULT_CONTINUE_PROMPT =
   "Continue from the current thread state. Pick the next highest-value step and follow through until the task is resolved.";
 const EXTERNAL_AGENT_IMPORT_COMPLETED = "externalAgentConfig/import/completed";
@@ -153,6 +154,14 @@ function looksLikeVerificationCommand(command: string): boolean {
 function buildTaskThreadName(prompt: string): string {
   const excerpt = shorten(prompt, 56);
   return excerpt ? `${TASK_THREAD_PREFIX}: ${excerpt}` : TASK_THREAD_PREFIX;
+}
+
+// Deliberately not the task prefix: findLatestTaskThread matches threads by
+// TASK_THREAD_PREFIX, so sharing it would make reviews resumable through
+// `task --resume-last` and let a review displace the latest rescue thread.
+function buildReviewThreadName(reviewLabel: string, targetLabel: string): string {
+  const excerpt = shorten(`${reviewLabel} — ${targetLabel}`.trim(), 56);
+  return excerpt ? `${REVIEW_THREAD_PREFIX}: ${excerpt}` : REVIEW_THREAD_PREFIX;
 }
 
 function extractThreadId(message: unknown): string | null {
@@ -1114,6 +1123,7 @@ export async function runAppServerReview(
     delivery?: "inline" | "detached";
     model?: string | null | undefined;
     onProgress?: ProgressReporter | null | undefined;
+    persistThread?: boolean | undefined;
     target: ReviewTarget;
     threadName?: string | null | undefined;
   }
@@ -1130,7 +1140,7 @@ export async function runAppServerReview(
     const thread = await startThread(client, cwd, {
       model: options.model,
       sandbox: "read-only",
-      ephemeral: true,
+      ephemeral: !options.persistThread,
       threadName: options.threadName
     });
     const sourceThreadId = thread.thread.id;
@@ -1329,6 +1339,10 @@ export function buildPersistentTaskThreadName(prompt: string): string {
   return buildTaskThreadName(prompt);
 }
 
+export function buildPersistentReviewThreadName(reviewLabel: string, targetLabel: string): string {
+  return buildReviewThreadName(reviewLabel, targetLabel);
+}
+
 export function parseStructuredOutput(
   rawOutput: string | null | undefined,
   fallback: { failureMessage?: string } & Record<string, unknown> = {}
@@ -1363,4 +1377,4 @@ export function readOutputSchema(schemaPath: string): unknown {
   return readJsonFile(schemaPath);
 }
 
-export { DEFAULT_CONTINUE_PROMPT, TASK_THREAD_PREFIX };
+export { DEFAULT_CONTINUE_PROMPT, REVIEW_THREAD_PREFIX, TASK_THREAD_PREFIX };

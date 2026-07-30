@@ -20,6 +20,7 @@ interface StopHookInput {
   cwd?: string | undefined;
   last_assistant_message?: string | undefined;
   session_id?: string | undefined;
+  stop_hook_active?: boolean | undefined;
 }
 
 interface StopReviewResult {
@@ -30,6 +31,11 @@ interface StopReviewResult {
 function optionalString(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function optionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
+  const value = record[key];
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function readHookInput(): StopHookInput {
@@ -44,7 +50,8 @@ function readHookInput(): StopHookInput {
   return {
     cwd: optionalString(parsed, "cwd"),
     last_assistant_message: optionalString(parsed, "last_assistant_message"),
-    session_id: optionalString(parsed, "session_id")
+    session_id: optionalString(parsed, "session_id"),
+    stop_hook_active: optionalBoolean(parsed, "stop_hook_active")
   };
 }
 
@@ -183,6 +190,16 @@ function main(): void {
   const setupNote = buildSetupNote(cwd);
   if (setupNote) {
     logNote(setupNote);
+    logNote(runningTaskNote);
+    return;
+  }
+
+  // Claude Code is already continuing because this hook blocked, so the turn
+  // it would review is the one it just rejected. Reviewing again would block
+  // again, and a review that times out or errors is never "ok", so the turn
+  // would be blocked until the consecutive-block cap force-ends it. Gate once
+  // and yield on the retry.
+  if (input.stop_hook_active) {
     logNote(runningTaskNote);
     return;
   }

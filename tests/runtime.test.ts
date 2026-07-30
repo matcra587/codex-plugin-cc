@@ -180,6 +180,42 @@ test("review renders a no-findings result from app-server review/start", () => {
   assert.match(result.stdout, /No material issues found/);
 });
 
+// Both review paths used to start ephemeral threads, so a review whose output
+// was lost left nothing behind: no thread to resume, no stored result.
+for (const [command, label] of [
+  ["review", "Review"],
+  ["adversarial-review", "Adversarial Review"]
+] as const) {
+  test(`${command} persists its Codex thread so the run stays recoverable`, () => {
+    const repo = makeTempDir();
+    const binDir = makeTempDir();
+    const fakeStatePath = path.join(binDir, "fake-codex-state.json");
+    installFakeCodex(binDir);
+    initGitRepo(repo);
+    fs.mkdirSync(path.join(repo, "src"));
+    fs.writeFileSync(path.join(repo, "src", "app.js"), "export const value = items[0];\n");
+    run("git", ["add", "src/app.js"], { cwd: repo });
+    run("git", ["commit", "-m", "init"], { cwd: repo });
+    fs.writeFileSync(path.join(repo, "src", "app.js"), "export const value = items[0].id;\n");
+
+    const result = run("bun", [SCRIPT, command], { cwd: repo, env: buildEnv(binDir) });
+    assert.equal(result.status, 0, result.stderr);
+
+    const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));
+    const named = fakeState.threads.filter(
+      (thread: { name?: string | null }) =>
+        typeof thread.name === "string" && thread.name.startsWith("Codex Companion Review")
+    );
+    assert.equal(named.length > 0, true, "the review thread should be named");
+    assert.equal(named[0].name.includes(label), true, `thread name should identify the ${label} run`);
+    for (const thread of named) {
+      assert.equal(thread.ephemeral, false, "a review thread must not be ephemeral");
+    }
+    // The task prefix drives `task --resume-last`; reviews must stay out of it.
+    assert.equal(named[0].name.startsWith("Codex Companion Task"), false);
+  });
+}
+
 test("task runs when the active provider does not require OpenAI login", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
@@ -2211,6 +2247,46 @@ test("stop hook runs a stop-time review task and blocks on findings when the rev
   });
   assert.equal(status.status, 0, status.stderr);
   assert.match(status.stdout, /Codex Stop Gate Review/);
+});
+
+// Without this the gate re-reviews and re-blocks on every forced retry, so a
+// review that times out or errors keeps the turn blocked until the harness
+// hits its consecutive-block cap and overrides the hook.
+test("stop hook yields instead of reviewing again while Claude is already continuing", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const fakeStatePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
+  run("git", ["add", "README.md"], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const setup = run("bun", [SCRIPT, "setup", "--enable-review-gate", "--json"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(setup.status, 0, setup.stderr);
+  assert.equal(JSON.parse(setup.stdout).reviewGateEnabled, true);
+
+  const before = fs.existsSync(fakeStatePath) ? fs.readFileSync(fakeStatePath, "utf8") : "";
+
+  const retried = run("bun", [STOP_HOOK], {
+    cwd: repo,
+    env: buildEnv(binDir),
+    input: JSON.stringify({
+      cwd: repo,
+      session_id: "sess-stop-review",
+      last_assistant_message: "I completed the refactor and updated the retry logic.",
+      stop_hook_active: true
+    })
+  });
+
+  assert.equal(retried.status, 0, retried.stderr);
+  // No decision at all: emitting one would block the turn a second time.
+  assert.equal(retried.stdout.trim(), "");
+  const after = fs.existsSync(fakeStatePath) ? fs.readFileSync(fakeStatePath, "utf8") : "";
+  assert.equal(after, before, "the gate must not start another Codex review on the retry");
 });
 
 test("stop hook logs running tasks to stderr without blocking when the review gate is disabled", () => {
