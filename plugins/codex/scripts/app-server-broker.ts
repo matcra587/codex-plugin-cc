@@ -37,6 +37,32 @@ const APP_SERVER_METHODS: ReadonlySet<string> = new Set<AppServerMethod>([
 ]);
 const STREAMING_METHODS = new Set<AppServerMethod>(["turn/start", "review/start", "thread/compact/start"]);
 
+export const IDLE_TIMEOUT_ENV = "CODEX_COMPANION_BROKER_IDLE_MS";
+// A broker outlives the command that spawned it so the next one reuses a warm
+// app-server. Nothing reaped it when its session went away without a SessionEnd
+// hook — a crash, a closed terminal, a suspended machine — so brokers and their
+// Codex children accumulated for as long as the machine stayed up.
+//
+// Clients connect per operation and disconnect straight after, so an idle
+// socket count says nothing about whether a session is still alive. Only
+// sustained inactivity does. Thirty minutes is far longer than the gap between
+// commands in a working session and far shorter than the lifetime of an orphan.
+const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const IDLE_CHECK_INTERVAL_MS = 60 * 1000;
+
+export function resolveIdleTimeoutMs(raw: string | undefined): number {
+  if (raw === undefined) {
+    return DEFAULT_IDLE_TIMEOUT_MS;
+  }
+  const parsed = Number(raw);
+  // 0 or a negative value disables reaping; anything unparsable falls back
+  // rather than silently disabling it.
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_IDLE_TIMEOUT_MS;
+  }
+  return parsed <= 0 ? 0 : parsed;
+}
+
 function stringProperty(value: unknown, property: string): string | null {
   return isRecord(value) && typeof value[property] === "string" ? value[property] : null;
 }
@@ -151,6 +177,7 @@ async function main(): Promise<void> {
   let activeStreamThreadIds: Set<string> | null = null;
   let activeStreamTurn: ActiveStreamTurn | null = null;
   let shuttingDown = false;
+  let brokerIdleTimer: ReturnType<typeof setInterval> | null = null;
   const sockets = new Set<Bun.Socket<BrokerSocketData>>();
 
   async function interruptOwnerlessTurn(turn: ActiveStreamTurn): Promise<void> {
@@ -200,6 +227,10 @@ async function main(): Promise<void> {
       return;
     }
     shuttingDown = true;
+    if (brokerIdleTimer) {
+      clearInterval(brokerIdleTimer);
+      brokerIdleTimer = null;
+    }
     for (const socket of sockets) {
       socket.end();
     }
@@ -373,6 +404,43 @@ async function main(): Promise<void> {
     }
   });
 
+  const idleTimeoutMs = resolveIdleTimeoutMs(process.env[IDLE_TIMEOUT_ENV]);
+  if (idleTimeoutMs > 0) {
+    let idleSince: number | null = Date.now();
+    const markBusy = (): void => {
+      idleSince = null;
+    };
+    const isIdle = (): boolean =>
+      sockets.size === 0 && activeStreamTurn === null && activeRequestSocket === null && activeStreamSocket === null;
+
+    // Checked on a timer rather than on disconnect: a client disconnects after
+    // every operation, so a single disconnect is not evidence the session ended.
+    // The interval tracks short timeouts so a small value still reaps promptly.
+    const checkIntervalMs = Math.max(250, Math.min(IDLE_CHECK_INTERVAL_MS, idleTimeoutMs));
+    const idleTimer = setInterval(() => {
+      if (shuttingDown) {
+        return;
+      }
+      if (!isIdle()) {
+        markBusy();
+        return;
+      }
+      if (idleSince === null) {
+        idleSince = Date.now();
+        return;
+      }
+      if (Date.now() - idleSince < idleTimeoutMs) {
+        return;
+      }
+      clearInterval(idleTimer);
+      void shutdown(server).then(
+        () => process.exit(0),
+        () => process.exit(0)
+      );
+    }, checkIntervalMs);
+    brokerIdleTimer = idleTimer;
+  }
+
   void appClient.exitPromise.then(() => shutdown(server)).catch(() => shutdown(server));
 
   process.on("SIGTERM", async () => {
@@ -386,7 +454,11 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+// Only run when executed directly, so tests can import the helpers above
+// without starting a broker and exiting the test runner.
+if (import.meta.main) {
+  main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+}

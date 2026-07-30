@@ -1,4 +1,5 @@
 import { test } from "bun:test";
+import { IDLE_TIMEOUT_ENV, resolveIdleTimeoutMs } from "../plugins/codex/scripts/app-server-broker.ts";
 import { createBrokerEndpoint } from "../plugins/codex/scripts/lib/broker-endpoint.ts";
 import {
   createBrokerSessionDir,
@@ -10,7 +11,14 @@ import {
 import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { resolveStateDir } from "../plugins/codex/scripts/lib/state.ts";
 import { assert } from "./assertions.ts";
+import { buildEnv, installFakeCodex } from "./fake-codex-fixture.ts";
 import { makeTempDir } from "./helpers.ts";
+
+const BROKER_SCRIPT = path.resolve(
+  path.dirname(Bun.fileURLToPath(import.meta.url)),
+  "..",
+  "plugins/codex/scripts/app-server-broker.ts"
+);
 
 function writeBrokerState(workspace: string, value: unknown): void {
   const stateDir = resolveStateDir(workspace);
@@ -92,4 +100,59 @@ test("ensureBrokerSession gives an existing broker a meaningful readiness window
   assert.deepEqual(resolved, session);
   assert.equal(observedTimeout, EXISTING_BROKER_PROBE_TIMEOUT_MS);
   assert.equal(observedTimeout >= 1000, true);
+});
+
+test("resolveIdleTimeoutMs defaults, disables, and rejects nonsense", () => {
+  assert.equal(resolveIdleTimeoutMs(undefined), 30 * 60 * 1000);
+  // Unparsable input must fall back rather than silently disable reaping.
+  assert.equal(resolveIdleTimeoutMs("not-a-number"), 30 * 60 * 1000);
+  assert.equal(resolveIdleTimeoutMs("0"), 0);
+  assert.equal(resolveIdleTimeoutMs("-5"), 0);
+  assert.equal(resolveIdleTimeoutMs("1500"), 1500);
+});
+
+function spawnBroker(idleMs: string) {
+  const sessionDir = createBrokerSessionDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  const pidFile = path.join(sessionDir, "broker.pid");
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      BROKER_SCRIPT,
+      "serve",
+      "--endpoint",
+      createBrokerEndpoint(sessionDir),
+      "--pid-file",
+      pidFile,
+      "--log-file",
+      path.join(sessionDir, "broker.log")
+    ],
+    { cwd: makeTempDir(), env: { ...buildEnv(binDir), [IDLE_TIMEOUT_ENV]: idleMs }, stdout: "ignore", stderr: "ignore" }
+  );
+  return { child, pidFile };
+}
+
+function exitWithin(child: Bun.Subprocess, ms: number): Promise<number | "timeout"> {
+  return Promise.race([child.exited, new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), ms))]);
+}
+
+// The reported leak is a broker whose session vanished without a SessionEnd
+// hook: nothing reaped it, so it and its Codex child stayed up indefinitely.
+test("an idle broker reaps itself and removes its pid file", async () => {
+  const { child, pidFile } = spawnBroker("300");
+  const outcome = await exitWithin(child, 20_000);
+  assert.equal(outcome, 0, "the idle broker should exit cleanly");
+  assert.equal(fs.existsSync(pidFile), false, "shutdown should remove the pid file");
+});
+
+// Control: proves the exit above is caused by idleness, not by the fake Codex
+// child dying and tripping the existing exitPromise shutdown.
+test("a broker with reaping disabled stays up while idle", async () => {
+  const { child } = spawnBroker("0");
+  // Comfortably longer than the reaping case above takes, and under the
+  // runner's per-test timeout.
+  const outcome = await exitWithin(child, 2_000);
+  child.kill();
+  assert.equal(outcome, "timeout", "the broker should still be running with reaping disabled");
 });
