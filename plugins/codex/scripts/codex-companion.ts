@@ -85,6 +85,7 @@ interface ReviewRunRequest {
   base?: string | undefined;
   scope?: string | undefined;
   model?: string | null | undefined;
+  effort?: ReasoningEffort | null | undefined;
   focusText?: string;
   reviewName?: string;
   onProgress?: ProgressReporter | null | undefined;
@@ -120,7 +121,7 @@ function printUsage(): void {
       "Usage:",
       "  bun scripts/codex-companion.ts setup [--enable-review-gate|--disable-review-gate] [--json]",
       "  bun scripts/codex-companion.ts review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
-      "  bun scripts/codex-companion.ts adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
+      "  bun scripts/codex-companion.ts adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [--model <model>] [--effort <none|minimal|low|medium|high|xhigh|max|ultra>] [focus text]",
       "  bun scripts/codex-companion.ts task [--background] [--write] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh|max|ultra>] [prompt]",
       "  bun scripts/codex-companion.ts transfer [--source <claude-jsonl>] [--json]",
       "  bun scripts/codex-companion.ts status [job-id] [--all] [--json]",
@@ -459,6 +460,14 @@ async function executeReviewRun(request: ReviewRunRequest) {
   const focusText = request.focusText?.trim() ?? "";
   const reviewName = request.reviewName ?? "Review";
   if (reviewName === "Review") {
+    // review/start takes only a thread and a target, and thread/start has no
+    // effort field either, so the protocol cannot carry it on this path.
+    // Failing is honest; silently dropping it is what upstream complained of.
+    if (request.effort) {
+      throw new Error(
+        "Reasoning effort is not supported by the built-in review. Use /codex:adversarial-review --effort, or set model_reasoning_effort in your Codex config.toml."
+      );
+    }
     const reviewTarget = validateNativeReviewRequest(target, focusText);
     const result = await runAppServerReview(request.cwd, {
       target: reviewTarget,
@@ -509,6 +518,7 @@ async function executeReviewRun(request: ReviewRunRequest) {
     sandbox: "read-only",
     outputSchema: readOutputSchema(REVIEW_SCHEMA),
     onProgress: request.onProgress,
+    effort: request.effort,
     persistThread: true,
     threadName: buildPersistentReviewThreadName(reviewName, target.label)
   });
@@ -824,7 +834,7 @@ function enqueueBackgroundTask(cwd: string, job: CompanionJob, request: TaskRequ
 
 async function handleReviewCommand(argv: string[], config: ReviewCommandConfig): Promise<void> {
   const { options, positionals } = parseCommandInput(argv, {
-    valueOptions: ["base", "scope", "model", "cwd"],
+    valueOptions: ["base", "scope", "model", "effort", "cwd"],
     booleanOptions: ["json", "background", "wait"],
     trailingText: true,
     aliasMap: {
@@ -838,6 +848,7 @@ async function handleReviewCommand(argv: string[], config: ReviewCommandConfig):
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
+  const effort = normalizeReasoningEffort(options.effort);
   const focusText = positionals.join(" ").trim();
   const target = resolveReviewTarget(cwd, {
     base: options.base,
@@ -862,6 +873,7 @@ async function handleReviewCommand(argv: string[], config: ReviewCommandConfig):
         base: options.base,
         scope: options.scope,
         model: options.model,
+        effort,
         focusText,
         reviewName: config.reviewName,
         onProgress: progress
