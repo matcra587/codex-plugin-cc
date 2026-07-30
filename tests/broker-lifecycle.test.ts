@@ -147,6 +147,10 @@ test("an idle broker reaps itself and removes its pid file", async () => {
   const { child, pidFile } = spawnBroker("300");
   // Under the control test's survival window, so the pair discriminates.
   const outcome = await exitWithin(child, 2_000);
+  // A failing reap must not leave a broker behind, in the suite about leaks.
+  if (outcome === "timeout") {
+    child.kill();
+  }
   assert.equal(outcome, 0, "the idle broker should exit cleanly");
   assert.equal(fs.existsSync(pidFile), false, "shutdown should remove the pid file");
 });

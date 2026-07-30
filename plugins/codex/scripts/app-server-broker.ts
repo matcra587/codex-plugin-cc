@@ -123,6 +123,20 @@ function isInterruptRequest(message: JsonRpcMessage): boolean {
   return message?.method === "turn/interrupt";
 }
 
+// Teardown must reach the end. A failed unlink — a raced cleanup, a read-only
+// directory — used to abort the rest of shutdown, leaving the app-server child
+// running and the pid file behind: the leak this file exists to prevent.
+function removeQuietly(target: string | null): void {
+  if (!target) {
+    return;
+  }
+  try {
+    fs.unlinkSync(target);
+  } catch {
+    // Already gone, or not ours to remove. Either way, keep tearing down.
+  }
+}
+
 function writePidFile(pidFile: string | null): void {
   if (!pidFile) {
     return;
@@ -250,16 +264,14 @@ async function main(): Promise<void> {
     // client could connect to a dying broker and then fail its real request
     // with an error the caller does not retry.
     server.stop(true);
-    if (listenTarget.kind === "unix" && fs.existsSync(listenTarget.path)) {
-      fs.unlinkSync(listenTarget.path);
+    if (listenTarget.kind === "unix") {
+      removeQuietly(listenTarget.path);
     }
     for (const socket of sockets) {
       socket.end();
     }
     await appClient.close().catch(() => {});
-    if (pidFile && fs.existsSync(pidFile)) {
-      fs.unlinkSync(pidFile);
-    }
+    removeQuietly(pidFile);
   }
 
   appClient.setNotificationHandler(routeNotification);
