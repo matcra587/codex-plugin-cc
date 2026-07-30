@@ -1,0 +1,30 @@
+name: Code quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Biome
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Biome
+        uses: biomejs/setup-biome@a05c02a1304287da45f13648675a70d5841acdbc # v2.7.0
+        with:
+          # Keep in step with the @biomejs/biome devDependency in package.json.
+          version: 2.5.5
+
+      - name: Run Biome
+        run: biome ci .
