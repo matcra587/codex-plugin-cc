@@ -6,7 +6,8 @@ import {
   EXISTING_BROKER_PROBE_TIMEOUT_MS,
   ensureBrokerSession,
   loadBrokerSession,
-  saveBrokerSession
+  saveBrokerSession,
+  waitForBrokerEndpoint
 } from "../plugins/codex/scripts/lib/broker-lifecycle.ts";
 import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { resolveStateDir } from "../plugins/codex/scripts/lib/state.ts";
@@ -114,10 +115,10 @@ test("resolveIdleTimeoutMs defaults, disables, and rejects nonsense", () => {
   assert.equal(resolveIdleTimeoutMs("1500"), 1500);
 });
 
-function spawnBroker(idleMs: string) {
+function spawnBroker(idleMs: string, behavior = "review-ok") {
   const sessionDir = createBrokerSessionDir();
   const binDir = makeTempDir();
-  installFakeCodex(binDir);
+  installFakeCodex(binDir, behavior);
   const pidFile = path.join(sessionDir, "broker.pid");
   const endpoint = createBrokerEndpoint(sessionDir);
   const child = Bun.spawn(
@@ -203,4 +204,90 @@ test("a broker in steady use is not reaped", async () => {
   const stillRunning = child.exitCode === null;
   child.kill();
   assert.equal(stillRunning, true, "steady use must keep the broker alive");
+});
+
+function connectLines(socketPath: string) {
+  let onLine: (line: string) => void = () => {};
+  let buffer = "";
+  const ready = new Promise<Bun.Socket<undefined>>((resolve, reject) => {
+    Bun.connect({
+      unix: socketPath,
+      socket: {
+        open: (socket) => resolve(socket as Bun.Socket<undefined>),
+        data: (_socket, chunk) => {
+          buffer += new TextDecoder().decode(chunk);
+          let index = buffer.indexOf("\n");
+          while (index !== -1) {
+            const line = buffer.slice(0, index);
+            buffer = buffer.slice(index + 1);
+            index = buffer.indexOf("\n");
+            if (line.trim()) {
+              onLine(line);
+            }
+          }
+        },
+        error: (_socket, error) => reject(error)
+      }
+    }).catch(reject);
+  });
+  return { ready, setHandler: (fn: (line: string) => void) => (onLine = fn) };
+}
+
+// The inverse hazard to reaping: a broker is shared between sessions, so it must
+// never be reaped while it is streaming a turn for one of them.
+test("a broker streaming a turn is not reaped mid-turn", async () => {
+  const { child, endpoint } = spawnBroker("500", "interruptible-slow-task");
+  await waitForBrokerEndpoint(endpoint, 5_000);
+  const client = connectLines(endpoint.replace(/^unix:/, ""));
+  const socket = await client.ready;
+  socket.write(
+    `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "t", version: "1" } } })}\n`
+  );
+  await Bun.sleep(100);
+  socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "thread/start", params: { cwd: "/tmp" } })}\n`);
+  await Bun.sleep(100);
+  socket.write(
+    `${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "turn/start", params: { threadId: "thr_1", input: [{ type: "text", text: "go" }] } })}\n`
+  );
+
+  // The fixture's turn runs for 5s; the idle window is 500ms.
+  await Bun.sleep(2500);
+  const survived = child.exitCode === null;
+  socket.end();
+  child.kill();
+  assert.equal(survived, true, "a broker must not be reaped while streaming a turn");
+});
+
+// Regression guards on the two shutdown paths that predate reaping.
+test("broker/shutdown still works with reaping enabled", async () => {
+  const { child, endpoint } = spawnBroker("600000");
+  await waitForBrokerEndpoint(endpoint, 5_000);
+  const client = connectLines(endpoint.replace(/^unix:/, ""));
+  const socket = await client.ready;
+  socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "broker/shutdown", params: {} })}\n`);
+  const outcome = await exitWithin(child, 3_000);
+  if (outcome === "timeout") {
+    child.kill();
+  }
+  assert.equal(outcome, 0, "an explicit shutdown must still stop a reaping-enabled broker");
+});
+
+test("a broker still exits when its Codex child dies", async () => {
+  const { child } = spawnBroker("600000");
+  await Bun.sleep(700);
+  // Scoped to this broker's own children, never a machine-wide match.
+  const kids = (await Bun.$`pgrep -P ${child.pid} || true`.text()).trim().split(/\s+/).filter(Boolean);
+  assert.equal(kids.length > 0, true, "the broker should have spawned a Codex child");
+  for (const kid of kids) {
+    try {
+      process.kill(Number(kid), "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
+  const outcome = await exitWithin(child, 5_000);
+  if (outcome === "timeout") {
+    child.kill();
+  }
+  assert.equal(outcome, 0, "the broker must follow its Codex child out");
 });
