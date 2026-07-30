@@ -1,4 +1,5 @@
 import { test } from "bun:test";
+import { chmodSync } from "node:fs";
 import { IDLE_TIMEOUT_ENV, resolveIdleTimeoutMs } from "../plugins/codex/scripts/app-server-broker.ts";
 import { createBrokerEndpoint } from "../plugins/codex/scripts/lib/broker-endpoint.ts";
 import {
@@ -310,37 +311,81 @@ test("a broker streaming a turn is not reaped mid-turn", async () => {
 // Regression guards on the two shutdown paths that predate reaping.
 test("broker/shutdown still works with reaping enabled", async () => {
   const { child, endpoint } = spawnBroker("600000");
-  await waitForBrokerEndpoint(endpoint, 5_000);
-  const client = connectLines(endpoint.replace(/^unix:/, ""));
-  const socket = await client.ready;
-  socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "broker/shutdown", params: {} })}\n`);
-  const outcome = await exitWithin(child, 3_000);
-  if (outcome === "timeout") {
+  try {
+    assert.equal(await waitForBrokerEndpoint(endpoint, 10_000), true, "the broker should come up");
+    const client = connectLines(endpoint.replace(/^unix:/, ""));
+    const socket = await client.ready;
+    socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "broker/shutdown", params: {} })}\n`);
+    const outcome = await exitWithin(child, 3_000);
+    assert.equal(outcome, 0, "an explicit shutdown must still stop a reaping-enabled broker");
+  } finally {
+    // Its idle window is ten minutes, so a failure here would otherwise leave a
+    // broker and its Codex child running for that long.
     child.kill();
   }
-  assert.equal(outcome, 0, "an explicit shutdown must still stop a reaping-enabled broker");
 });
 
 test("a broker still exits when its Codex child dies", async () => {
-  const { child } = spawnBroker("600000");
-  // Scoped to this broker's own children, never a machine-wide match. Polled so
-  // a slower runner does not fail purely on spawn latency.
-  let kids: string[] = [];
-  await waitFor(async () => {
-    kids = await brokerChildren(child.pid);
-    return kids.length > 0;
-  }, 10_000);
-  assert.equal(kids.length > 0, true, "the broker should have spawned a Codex child");
-  for (const kid of kids) {
-    try {
-      process.kill(Number(kid), "SIGKILL");
-    } catch {
-      // Already gone.
+  const { child, endpoint } = spawnBroker("600000");
+  try {
+    // The broker only starts listening once its app-server handshake resolves, so
+    // waiting for the endpoint guarantees the child is past initialize. Killing
+    // before that rejects the handshake and the broker exits 1, not 0.
+    assert.equal(await waitForBrokerEndpoint(endpoint, 10_000), true, "the broker should come up");
+    let kids: string[] = [];
+    await waitFor(async () => {
+      kids = await brokerChildren(child.pid);
+      return kids.length > 0;
+    }, 10_000);
+    assert.equal(kids.length > 0, true, "the broker should have spawned a Codex child");
+    for (const kid of kids) {
+      try {
+        process.kill(Number(kid), "SIGKILL");
+      } catch {
+        // Already gone.
+      }
     }
-  }
-  const outcome = await exitWithin(child, 5_000);
-  if (outcome === "timeout") {
+    const outcome = await exitWithin(child, 5_000);
+    assert.equal(outcome, 0, "the broker must follow its Codex child out");
+  } finally {
+    // Its idle window is ten minutes, so a failure here would otherwise leave a
+    // broker and its Codex child running for that long.
     child.kill();
   }
-  assert.equal(outcome, 0, "the broker must follow its Codex child out");
+});
+
+// Teardown removes the socket before closing the app-server client, so a
+// throwing unlink would abort shutdown and leave the Codex child running.
+// Making the session directory read-only is the only way to force that.
+test("teardown completes even when the socket cannot be removed", async () => {
+  const { child, endpoint, pidFile } = spawnBroker("400");
+  const sessionDir = path.dirname(pidFile);
+  try {
+    assert.equal(await waitForBrokerEndpoint(endpoint, 10_000), true, "the broker should come up");
+    let kids: string[] = [];
+    await waitFor(async () => {
+      kids = await brokerChildren(child.pid);
+      return kids.length > 0;
+    }, 10_000);
+    assert.equal(kids.length > 0, true, "the broker should have spawned a Codex child");
+
+    // No write permission on the directory means unlink fails with EACCES.
+    // The platform fs shim does not expose chmod, so use node:fs here.
+    chmodSync(sessionDir, 0o500);
+
+    const outcome = await exitWithin(child, 6_000);
+    assert.equal(outcome, 0, "an unlink failure must not stop the broker exiting");
+    const survivors = kids.filter((kid) => {
+      try {
+        process.kill(Number(kid), 0);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    assert.equal(survivors.length, 0, "the Codex child must still be torn down");
+  } finally {
+    chmodSync(sessionDir, 0o700);
+    child.kill();
+  }
 });

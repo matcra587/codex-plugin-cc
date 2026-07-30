@@ -2573,3 +2573,46 @@ test("setup and status honor --cwd when reading shared session runtime", () => {
   assert.equal(payload.sessionRuntime.mode, "shared");
   assert.equal(payload.sessionRuntime.endpoint, endpoint);
 });
+
+// Reviews took --model but not --effort, so a requested effort was parsed as
+// focus text and folded into the review prompt instead of reaching Codex.
+test("adversarial review forwards --effort to the Codex turn", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const fakeStatePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.mkdirSync(path.join(repo, "src"));
+  fs.writeFileSync(path.join(repo, "src", "app.js"), "export const value = items[0];\n");
+  run("git", ["add", "src/app.js"], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+  fs.writeFileSync(path.join(repo, "src", "app.js"), "export const value = items[0].id;\n");
+
+  const result = run("bun", [SCRIPT, "adversarial-review", "--effort", "high"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));
+  assert.equal(fakeState.lastTurnStart.effort, "high");
+  // It must not have leaked into the prompt as focus text.
+  assert.doesNotMatch(String(fakeState.lastTurnStart.prompt ?? ""), /--effort/);
+});
+
+// The built-in review runs through review/start, whose params carry no effort,
+// so accepting the flag would silently drop it.
+test("the built-in review rejects --effort instead of ignoring it", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
+  run("git", ["add", "README.md"], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const result = run("bun", [SCRIPT, "review", "--effort", "high"], { cwd: repo, env: buildEnv(binDir) });
+
+  assert.notEqual(result.status, 0, "asking for an unsupported effort should fail");
+  assert.match(result.stderr, /not supported by the built-in review/);
+});

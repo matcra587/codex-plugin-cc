@@ -22,8 +22,14 @@
   no active request and no streaming turn, and has seen no activity for the
   whole window — so a broker serving another session is never reaped.
 
-  Thirty minutes by default. `CODEX_COMPANION_BROKER_IDLE_MS` overrides it and
-  `0` disables it.
+  Thirty minutes by default. `CODEX_COMPANION_BROKER_IDLE_MS` overrides it, and
+  `0` or any negative value disables it.
+
+- `/codex:adversarial-review` accepts `--effort`. Reviews took `--model` but not
+  `--effort`, so a requested effort became focus text and was folded into the
+  review prompt. The built-in `/codex:review` still cannot take one — Codex's
+  review API has no field for it — so it now rejects the flag instead of
+  ignoring it.
 
 ### Fixed
 
@@ -31,8 +37,11 @@
   Closing the client first left the endpoint answering `initialize` for as long
   as the child took to exit, so a command could attach to a dying broker and
   then fail with an error it does not retry.
-- Teardown finishes even if removing the socket or pid file fails, rather than
-  aborting and leaving the child running.
+- Teardown finishes even if removing the socket or pid file fails. Moving the
+  socket removal ahead of closing the client, above, put an unlink between the
+  listener stopping and the child being torn down, so a throw there could have
+  aborted shutdown. Both unlinks tolerate failure, closing a hazard this
+  release introduced rather than one that ever shipped.
 
 ## 2.0.3
 

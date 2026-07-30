@@ -53,7 +53,10 @@ test("adversarial review command uses AskUserQuestion and background Bash while 
   assert.match(source, /```bash/);
   assert.match(source, /```typescript/);
   assert.match(source, /adversarial-review "\$ARGUMENTS"/);
-  assert.match(source, /\[--scope auto\|working-tree\|branch\] \[focus \.\.\.\]/);
+  assert.match(
+    source,
+    /\[--scope auto\|working-tree\|branch\] \[--model <model>\] \[--effort <level>\] \[focus \.\.\.\]/
+  );
   assert.match(source, /run_in_background:\s*true/);
   assert.match(
     source,

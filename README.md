@@ -129,7 +129,13 @@ Examples:
 /codex:adversarial-review
 /codex:adversarial-review --base main challenge whether this was the right caching and retry design
 /codex:adversarial-review --background look for race conditions and question the chosen approach
+/codex:adversarial-review --model gpt-5.6-sol --effort high question the locking design
 ```
+
+`--model` and `--effort` apply to `/codex:adversarial-review` only. The built-in
+`/codex:review` uses Codex's own review API, which has no field for reasoning
+effort, so it rejects `--effort` rather than accepting and ignoring it. Set
+`model_reasoning_effort` in your Codex config to change the default there.
 
 This command is read-only. It does not fix code.
 
