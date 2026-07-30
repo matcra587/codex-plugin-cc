@@ -37,7 +37,7 @@ test("preflight hands off to bun when the installed version meets the floor", ()
   for (const version of ["1.3.14", "1.3.15", "1.4.0", "2.0.0", "1.10.0"]) {
     const result = runWrapper(`${fakeBunDir(version)}:/usr/bin:/bin`);
     assert.equal(result.status, 0, `${version}: ${result.stderr}`);
-    assert.match(result.stdout, new RegExp(`${MARKER} entrypoint\\.ts an-argument`));
+    assert.match(result.stdout, `${MARKER} entrypoint.ts an-argument`);
   }
 });
 
@@ -47,7 +47,9 @@ test("preflight rejects a bun older than the engines floor", () => {
     const result = runWrapper(`${fakeBunDir(version)}:/usr/bin:/bin`);
     assert.equal(result.status, 1, `${version} should have been rejected`);
     assert.match(result.stderr, /requires Bun 1\.3\.14 or later/);
-    assert.match(result.stderr, new RegExp(`found ${version.replace(/\./g, "\\.")}`));
+    // A plain string is a substring assertion, so the version needs no regex
+    // escaping and cannot be misread as a pattern.
+    assert.match(result.stderr, `found ${version}`);
   }
 });
 
@@ -55,7 +57,7 @@ test("preflight tolerates build metadata and prerelease suffixes", () => {
   for (const version of ["1.3.14+abcdef", "1.3.14-canary.1"]) {
     const result = runWrapper(`${fakeBunDir(version)}:/usr/bin:/bin`);
     assert.equal(result.status, 0, `${version}: ${result.stderr}`);
-    assert.match(result.stdout, new RegExp(MARKER));
+    assert.match(result.stdout, MARKER);
   }
 });
 
