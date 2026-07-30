@@ -139,7 +139,31 @@ function spawnBroker(idleMs: string, behavior = "review-ok") {
 }
 
 function exitWithin(child: Bun.Subprocess, ms: number): Promise<number | "timeout"> {
-  return Promise.race([child.exited, new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), ms))]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    child.exited,
+    new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), ms);
+    })
+    // Clear the pending timer so a fast exit does not hold the runner open.
+  ]).finally(() => clearTimeout(timer));
+}
+
+// Waits for a condition rather than sleeping a fixed time, so the slower CI
+// runners do not fail on timing alone.
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) {
+      return true;
+    }
+    await Bun.sleep(50);
+  }
+  return false;
+}
+
+function brokerChildren(pid: number): Promise<string[]> {
+  return Bun.$`pgrep -P ${pid} || true`.text().then((out) => out.trim().split(/\s+/).filter(Boolean));
 }
 
 // The reported leak is a broker whose session vanished without a SessionEnd
@@ -171,38 +195,53 @@ test("a broker with reaping disabled stays up while idle", async () => {
 // and ended between two ticks was never seen and a broker in steady use reaped
 // itself mid-session.
 test("a broker in steady use is not reaped", async () => {
-  const { child, endpoint } = spawnBroker("600");
+  // A longer window than the other reaping tests: the broker has to come up and
+  // be used several times, and reaping it during startup would prove nothing.
+  const { child, endpoint } = spawnBroker("1500");
+  await waitForBrokerEndpoint(endpoint, 10_000);
   const socketPath = endpoint.replace(/^unix:/, "");
 
+  // Resolves true only on a real response, so a run of failed connections
+  // cannot be mistaken for activity keeping the broker alive.
   const useOnce = () =>
-    new Promise<void>((resolve) => {
+    new Promise<boolean>((resolve) => {
       Bun.connect({
         unix: socketPath,
         socket: {
           open(socket) {
-            socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "thread/list", params: { cwd: "/" } })}\n`);
+            // initialize is answered by the broker itself, so a response proves
+            // the round trip without depending on the fixture's method coverage.
+            socket.write(
+              `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "t", version: "1" } } })}\n`
+            );
           },
           data(socket) {
+            // Resolve before ending: socket.end() fires close synchronously,
+            // and close resolving false would otherwise win the race.
+            resolve(true);
             socket.end();
-            resolve();
           },
-          error: () => resolve(),
-          close: () => resolve()
+          error: () => resolve(false),
+          close: () => resolve(false)
         }
-      }).catch(() => resolve());
+      }).catch(() => resolve(false));
     });
 
   // Five operations spaced inside the window, spanning several times its length.
+  let served = 0;
   for (let index = 0; index < 5; index += 1) {
     await Bun.sleep(300);
     if (child.exitCode !== null) {
       break;
     }
-    await useOnce();
+    if (await useOnce()) {
+      served += 1;
+    }
   }
 
   const stillRunning = child.exitCode === null;
   child.kill();
+  assert.equal(served, 5, "every operation should have been answered");
   assert.equal(stillRunning, true, "steady use must keep the broker alive");
 });
 
@@ -240,6 +279,12 @@ test("a broker streaming a turn is not reaped mid-turn", async () => {
   await waitForBrokerEndpoint(endpoint, 5_000);
   const client = connectLines(endpoint.replace(/^unix:/, ""));
   const socket = await client.ready;
+  let turnStarted = false;
+  client.setHandler((line) => {
+    if (line.includes('"turn/started"')) {
+      turnStarted = true;
+    }
+  });
   socket.write(
     `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "t", version: "1" } } })}\n`
   );
@@ -250,11 +295,15 @@ test("a broker streaming a turn is not reaped mid-turn", async () => {
     `${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "turn/start", params: { threadId: "thr_1", input: [{ type: "text", text: "go" }] } })}\n`
   );
 
+  // Confirm a turn is genuinely streaming first: asserting survival without one
+  // would pass even if turn/start had failed outright.
+  const streaming = await waitFor(() => turnStarted, 5_000);
   // The fixture's turn runs for 5s; the idle window is 500ms.
-  await Bun.sleep(2500);
+  await Bun.sleep(2000);
   const survived = child.exitCode === null;
   socket.end();
   child.kill();
+  assert.equal(streaming, true, "the fixture should have started a turn");
   assert.equal(survived, true, "a broker must not be reaped while streaming a turn");
 });
 
@@ -274,9 +323,13 @@ test("broker/shutdown still works with reaping enabled", async () => {
 
 test("a broker still exits when its Codex child dies", async () => {
   const { child } = spawnBroker("600000");
-  await Bun.sleep(700);
-  // Scoped to this broker's own children, never a machine-wide match.
-  const kids = (await Bun.$`pgrep -P ${child.pid} || true`.text()).trim().split(/\s+/).filter(Boolean);
+  // Scoped to this broker's own children, never a machine-wide match. Polled so
+  // a slower runner does not fail purely on spawn latency.
+  let kids: string[] = [];
+  await waitFor(async () => {
+    kids = await brokerChildren(child.pid);
+    return kids.length > 0;
+  }, 10_000);
   assert.equal(kids.length > 0, true, "the broker should have spawned a Codex child");
   for (const kid of kids) {
     try {
