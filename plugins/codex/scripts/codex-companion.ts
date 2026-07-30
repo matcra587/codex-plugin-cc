@@ -5,7 +5,7 @@
 
 import type { ReviewTarget } from "./lib/app-server-protocol";
 import type { AnyParsedOptions, ParseArgsConfig } from "./lib/args.ts";
-import { parseArgs, splitRawArgumentString } from "./lib/args.ts";
+import { parseArgs, splitLeadingOptions, splitRawArgumentString } from "./lib/args.ts";
 import { resolveClaudeSessionPath } from "./lib/claude-session-transfer.ts";
 import {
   buildPersistentReviewThreadName,
@@ -168,13 +168,18 @@ function normalizeReasoningEffort(effort: unknown): ReasoningEffort | null {
   return matchedEffort;
 }
 
-function normalizeArgv(argv: string[]): string[] {
+// Slash commands pass the whole of "$ARGUMENTS" as a single argument, so this
+// path runs for effectively every invocation. Only the leading options are
+// tokenized; the prompt keeps whatever the user actually typed.
+function normalizeArgv(argv: string[], config: ParseArgsConfig = {}): string[] {
   if (argv.length === 1) {
     const [raw] = argv;
     if (!raw?.trim()) {
       return [];
     }
-    return splitRawArgumentString(raw);
+    // Commands ending in free text keep their prompt verbatim; the rest take
+    // identifiers and can be tokenized whole.
+    return config.trailingText ? splitLeadingOptions(raw, config) : splitRawArgumentString(raw);
   }
   return argv;
 }
@@ -183,13 +188,25 @@ function parseCommandInput<const ValueOption extends string = never, const Boole
   argv: string[],
   config: ParseArgsConfig<ValueOption, BooleanOption> = {}
 ) {
-  return parseArgs(normalizeArgv(argv), {
+  const merged = {
     ...config,
+    // Every command answers --help rather than sending it to Codex as a prompt.
+    booleanOptions: [...(config.booleanOptions ?? []), "help"] as (BooleanOption | "help")[],
     aliasMap: {
       C: "cwd",
+      h: "help",
       ...(config.aliasMap ?? {})
     }
-  });
+  };
+  return parseArgs(normalizeArgv(argv, merged), merged);
+}
+
+function requestedHelp(options: AnyParsedOptions): boolean {
+  if (!options.help) {
+    return false;
+  }
+  printUsage();
+  return true;
 }
 
 function resolveCommandCwd(options: AnyParsedOptions = {}): string {
@@ -263,6 +280,10 @@ async function handleSetup(argv: string[]): Promise<void> {
     valueOptions: ["cwd"],
     booleanOptions: ["json", "enable-review-gate", "disable-review-gate"]
   });
+
+  if (requestedHelp(options)) {
+    return;
+  }
 
   if (options["enable-review-gate"] && options["disable-review-gate"]) {
     throw new Error("Choose either --enable-review-gate or --disable-review-gate.");
@@ -790,10 +811,15 @@ async function handleReviewCommand(argv: string[], config: ReviewCommandConfig):
   const { options, positionals } = parseCommandInput(argv, {
     valueOptions: ["base", "scope", "model", "cwd"],
     booleanOptions: ["json", "background", "wait"],
+    trailingText: true,
     aliasMap: {
       m: "model"
     }
   });
+
+  if (requestedHelp(options)) {
+    return;
+  }
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
@@ -840,10 +866,15 @@ async function handleTask(argv: string[]): Promise<void> {
   const { options, positionals } = parseCommandInput(argv, {
     valueOptions: ["model", "effort", "cwd", "prompt-file"],
     booleanOptions: ["json", "write", "resume-last", "resume", "fresh", "background"],
+    trailingText: true,
     aliasMap: {
       m: "model"
     }
   });
+
+  if (requestedHelp(options)) {
+    return;
+  }
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
@@ -905,6 +936,10 @@ async function handleTransfer(argv: string[]): Promise<void> {
     booleanOptions: ["json"]
   });
 
+  if (requestedHelp(options)) {
+    return;
+  }
+
   const cwd = resolveCommandCwd(options);
   const { payload, rendered } = await executeTransfer(cwd, {
     source: options.source
@@ -962,6 +997,10 @@ async function handleStatus(argv: string[]): Promise<void> {
     booleanOptions: ["json", "all", "wait"]
   });
 
+  if (requestedHelp(options)) {
+    return;
+  }
+
   const cwd = resolveCommandCwd(options);
   const reference = positionals[0] ?? "";
   if (reference) {
@@ -988,6 +1027,10 @@ function handleResult(argv: string[]): void {
     valueOptions: ["cwd"],
     booleanOptions: ["json"]
   });
+
+  if (requestedHelp(options)) {
+    return;
+  }
 
   const cwd = resolveCommandCwd(options);
   const reference = positionals[0] ?? "";
@@ -1040,6 +1083,10 @@ async function handleCancel(argv: string[]): Promise<void> {
     valueOptions: ["cwd"],
     booleanOptions: ["json"]
   });
+
+  if (requestedHelp(options)) {
+    return;
+  }
 
   const cwd = resolveCommandCwd(options);
   const reference = positionals[0] ?? "";

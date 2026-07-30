@@ -5,6 +5,27 @@
 
 # Changelog
 
+## 2.0.2
+
+### Fixed
+
+- Prompt text is no longer mangled. Slash commands hand the whole of
+  `$ARGUMENTS` over as a single argument, which was then re-split in full:
+  quotes and backslashes were stripped, and prose such as
+  `fix the --model handling` was read as a real option, hijacking model
+  selection and swallowing the following word. Only the leading run of
+  recognised options is parsed now; from the first word that is not one, the
+  prompt reaches Codex exactly as typed.
+- An unrecognised option is now a clean error instead of prompt text. Because
+  unknown flags were treated as positionals, `task --help` dispatched a real
+  Codex thread rather than printing usage. Every command answers `--help`, and
+  an unknown option exits non-zero with an explanation.
+
+Commands taking an identifier, such as `cancel <job-id> --json`, keep accepting
+options after the positional. The change applies to the commands whose trailing
+text is a prompt. Write `--` before prompt text that legitimately begins with a
+dash.
+
 ## 2.0.1
 
 ### Fixed
