@@ -172,10 +172,16 @@ function formatJobLine(job: JobRecord): string {
 }
 
 function escapeMarkdownCell(value: unknown): string {
-  return String(value ?? "")
-    .replace(/\|/g, "\\|")
-    .replace(/\r?\n/g, " ")
-    .trim();
+  return (
+    String(value ?? "")
+      // Backslashes first: escaping only the pipe turns an input `\|` into
+      // `\\|`, which renders as a literal backslash followed by an unescaped
+      // pipe and breaks out of the table cell.
+      .replace(/\\/g, "\\\\")
+      .replace(/\|/g, "\\|")
+      .replace(/\r?\n/g, " ")
+      .trim()
+  );
 }
 
 function formatCodexResumeCommand(job: JobRecord): string | null {

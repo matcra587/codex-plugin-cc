@@ -1,5 +1,10 @@
 import { test } from "bun:test";
-import { parseArgs, splitLeadingOptions, UnknownOptionError } from "../plugins/codex/scripts/lib/args.ts";
+import {
+  parseArgs,
+  splitLeadingOptions,
+  splitRawArgumentString,
+  UnknownOptionError
+} from "../plugins/codex/scripts/lib/args.ts";
 import { assert } from "./assertions.ts";
 
 // Mirrors handleTask, the command whose trailing positional is a free-text
@@ -14,11 +19,15 @@ const TASK = {
 // Mirrors handleCancel, where the positional is a job id and options may follow.
 const CANCEL = {
   valueOptions: ["cwd"],
-  booleanOptions: ["json", "help"]
+  booleanOptions: ["json", "help"],
+  trailingText: false
 } as const;
 
+// Mirrors normalizeArgv: slash commands hand over "$ARGUMENTS" as one string,
+// and only free-text commands keep their remainder verbatim.
 function parseRaw(raw: string, config: typeof TASK | typeof CANCEL) {
-  return parseArgs(splitLeadingOptions(raw, config), config);
+  const argv = config.trailingText ? splitLeadingOptions(raw, config) : splitRawArgumentString(raw);
+  return parseArgs(argv, config);
 }
 
 test("prose that looks like an option stays in the prompt", () => {
@@ -78,4 +87,25 @@ test("options still follow a job id for identifier commands", () => {
   const { options, positionals } = parseArgs(["task-abc123", "--json"], CANCEL);
   assert.equal(positionals[0], "task-abc123");
   assert.equal(options.json, true);
+});
+
+// /codex:result is handed "$ARGUMENTS" verbatim, so a user pasting a previous
+// review into it must not hard-fail on a `---` rule or a dash in the prose.
+test("pasted prose containing dashes does not fail an identifier command", () => {
+  const pasted = [
+    "Codex Adversarial Review",
+    "",
+    "Verdict: needs-attention",
+    "---",
+    "Note: --model was mentioned"
+  ].join("\n");
+  const { positionals } = parseRaw(pasted, CANCEL);
+  assert.equal(positionals.includes("---"), true);
+  assert.equal(positionals.includes("--model"), true);
+  assert.equal(positionals[0], "Codex");
+});
+
+test("identifier commands still answer --help", () => {
+  const { options } = parseRaw("--help", CANCEL);
+  assert.equal(options.help, true);
 });

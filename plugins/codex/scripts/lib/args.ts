@@ -100,7 +100,15 @@ export function parseArgs<const ValueOption extends string = never, const Boolea
         continue;
       }
 
-      throw new UnknownOptionError(`--${rawKey}`);
+      // Only free-text commands reject unknown options. There a stray flag used
+      // to be swallowed into the prompt and dispatch a real Codex turn, so it
+      // has to be loud. Identifier commands receive whatever the user typed —
+      // often pasted prose — and a dash in it must stay inert.
+      if (config.trailingText) {
+        throw new UnknownOptionError(`--${rawKey}`);
+      }
+      positionals.push(token);
+      continue;
     }
 
     const shortKey = token.slice(1);
@@ -121,7 +129,10 @@ export function parseArgs<const ValueOption extends string = never, const Boolea
       continue;
     }
 
-    throw new UnknownOptionError(`-${shortKey}`);
+    if (config.trailingText) {
+      throw new UnknownOptionError(`-${shortKey}`);
+    }
+    positionals.push(token);
   }
 
   return {

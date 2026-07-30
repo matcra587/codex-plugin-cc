@@ -5,6 +5,23 @@
 
 # Changelog
 
+## 2.0.3
+
+### Fixed
+
+- `status`, `result` and `cancel` no longer fail on text containing a dash.
+  2.0.2 made an unrecognised option a hard error, but those commands receive
+  whatever the user typed, so pasting a previous review into `/codex:result`
+  aborted on its `---` rule. Only the commands whose trailing text is a prompt
+  reject unknown options now, which is where a stray flag used to dispatch a
+  real Codex turn. The others treat it as text again, and every command still
+  answers `--help`.
+- Status table cells escape backslashes before pipes. Escaping only the pipe
+  left an input `\|` as `\\|`, which renders as a literal backslash followed by
+  a live pipe and breaks out of the cell, so job summaries could inject table
+  structure into `/codex:status`. Reported by CodeQL as
+  `js/incomplete-sanitization`.
+
 ## 2.0.2
 
 ### Fixed

@@ -2,7 +2,7 @@
 // See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
 
 import { test } from "bun:test";
-import { renderReviewResult, renderStoredJobResult } from "../plugins/codex/scripts/lib/render.ts";
+import { renderReviewResult, renderStatusReport, renderStoredJobResult } from "../plugins/codex/scripts/lib/render.ts";
 import { assert } from "./assertions.ts";
 
 test("renderReviewResult degrades gracefully when JSON is missing required review fields", () => {
@@ -57,4 +57,32 @@ test("renderStoredJobResult prefers rendered output for structured review jobs",
   assert.doesNotMatch(output, /^\{/);
   assert.match(output, /Codex session ID: thr_123/);
   assert.match(output, /Resume in Codex: codex resume thr_123/);
+});
+
+// CodeQL js/incomplete-sanitization: escaping only the pipe leaves an input
+// `\|` as `\\|`, a literal backslash plus a live pipe that breaks the cell.
+test("status table cells escape backslashes before pipes", () => {
+  const snapshot = {
+    sessionRuntime: { label: "direct startup" },
+    config: { stopReviewGate: false },
+    running: [
+      {
+        id: "task-1",
+        kindLabel: "rescue",
+        status: "running",
+        phase: null,
+        elapsed: "1s",
+        threadId: "thr_1",
+        summary: "breaks\\| out of the cell"
+      }
+    ],
+    latestFinished: null,
+    recent: [],
+    needsReview: false
+  };
+  const rendered = renderStatusReport(snapshot as never);
+  const row = rendered.split("\n").find((line) => line.includes("task-1")) ?? "";
+  assert.equal(row.includes("\\\\\\|"), true, `expected an escaped backslash and pipe, got: ${row}`);
+  // Eight columns means eight separators plus the leading and trailing bar.
+  assert.equal(row.split(/(?<!\\)\|/).length, 10, `cell count changed: ${row}`);
 });
