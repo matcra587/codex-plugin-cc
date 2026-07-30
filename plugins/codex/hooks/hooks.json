@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/session-lifecycle-hook.ts\" SessionStart",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/with-bun.sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/session-lifecycle-hook.ts", "SessionStart"],
             "timeout": 5
           }
         ]
@@ -17,7 +18,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/session-lifecycle-hook.ts\" SessionEnd",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/with-bun.sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/session-lifecycle-hook.ts", "SessionEnd"],
             "timeout": 5
           }
         ]
@@ -28,7 +30,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-review-gate-hook.ts\"",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/with-bun.sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/stop-review-gate-hook.ts"],
             "timeout": 900
           }
         ]
