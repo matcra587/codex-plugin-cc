@@ -82,7 +82,12 @@ test("status table cells escape backslashes before pipes", () => {
   };
   const rendered = renderStatusReport(snapshot as never);
   const row = rendered.split("\n").find((line) => line.includes("task-1")) ?? "";
-  assert.equal(row.includes("\\\\\\|"), true, `expected an escaped backslash and pipe, got: ${row}`);
-  // Eight columns means eight separators plus the leading and trailing bar.
-  assert.equal(row.split(/(?<!\\)\|/).length, 10, `cell count changed: ${row}`);
+  // The summary's `\|` must come out as an escaped backslash plus an escaped
+  // pipe, so exactly three backslashes precede the pipe. Two would mean the
+  // pipe is live and the cell has been broken open.
+  const backslashes = row.match(/breaks(\\+)\| out of the cell/)?.[1] ?? "";
+  assert.equal(backslashes.length, 3, `expected three backslashes before the pipe, got: ${row}`);
+  // Eight columns means eight separators plus the leading and trailing bar. A
+  // pipe only separates when an even-length backslash run precedes it.
+  assert.equal(row.split(/(?<!\\)(?:\\\\)*\|/).length, 10, `cell count changed: ${row}`);
 });
