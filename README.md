@@ -5,6 +5,10 @@ Use Codex from inside Claude Code for code reviews or to delegate tasks to Codex
 This plugin is for Claude Code users who want an easy way to start using Codex from the workflow
 they already have.
 
+> This is a fork of [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc), rebuilt on
+> Bun and TypeScript. It runs on Bun only — there is no Node.js fallback — and is maintained
+> independently of upstream. See the [changelog](./plugins/codex/CHANGELOG.md) for what changed.
+
 <video src="./docs/plugin-demo.webm" controls muted playsinline autoplay></video>
 
 ## What You Get
@@ -25,13 +29,13 @@ they already have.
 Add the marketplace in Claude Code:
 
 ```bash
-/plugin marketplace add openai/codex-plugin-cc
+/plugin marketplace add matcra587/codex-plugin-cc
 ```
 
 Install the plugin:
 
 ```bash
-/plugin install codex@openai-codex
+/plugin install codex@openai-codex-bun
 ```
 
 Reload plugins:
