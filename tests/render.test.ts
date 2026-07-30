@@ -91,3 +91,28 @@ test("status table cells escape backslashes before pipes", () => {
   // pipe only separates when an even-length backslash run precedes it.
   assert.equal(row.split(/(?<!\\)(?:\\\\)*\|/).length, 10, `cell count changed: ${row}`);
 });
+
+test("status table cells collapse a lone carriage return", () => {
+  const snapshot = {
+    sessionRuntime: { label: "direct startup" },
+    config: { stopReviewGate: false },
+    running: [
+      {
+        id: "task-cr",
+        kindLabel: "rescue",
+        status: "running",
+        phase: null,
+        elapsed: "1s",
+        threadId: "thr_1",
+        summary: "phase1\rphase2"
+      }
+    ],
+    latestFinished: null,
+    recent: [],
+    needsReview: false
+  };
+  const row = renderStatusReport(snapshot as never)
+    .split("\n")
+    .find((line) => line.includes("task-cr"));
+  assert.equal(typeof row === "string" && !/[\r\n]/.test(row), true, `row still splits: ${JSON.stringify(row)}`);
+});

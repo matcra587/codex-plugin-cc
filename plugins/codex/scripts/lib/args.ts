@@ -159,11 +159,14 @@ function tokenizeRawArgumentString(raw: string): RawToken[] {
     }
   };
   const flush = (): void => {
-    if (start !== -1) {
+    // An empty value means the token was only quotes, such as ''. Dropping it
+    // keeps parity with the previous tokenizer, so `cancel '' task-123` still
+    // resolves task-123 rather than an empty reference.
+    if (start !== -1 && current !== "") {
       tokens.push({ value: current, start });
-      current = "";
-      start = -1;
     }
+    current = "";
+    start = -1;
   };
 
   for (let index = 0; index < raw.length; index += 1) {

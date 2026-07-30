@@ -16,18 +16,25 @@ const TASK = {
   trailingText: true
 } as const;
 
-// Mirrors handleCancel, where the positional is a job id and options may follow.
+// Mirrors handleCancel, where the positional is a job id and options may
+// follow. help is deliberately absent: parseCommandInput only injects it for
+// free-text commands, and recognises it as a leading token otherwise.
 const CANCEL = {
   valueOptions: ["cwd"],
-  booleanOptions: ["json", "help"],
+  booleanOptions: ["json"],
   trailingText: false
 } as const;
 
-// Mirrors normalizeArgv: slash commands hand over "$ARGUMENTS" as one string,
-// and only free-text commands keep their remainder verbatim.
+// Mirrors normalizeArgv and parseCommandInput: slash commands hand over
+// "$ARGUMENTS" as one string, only free-text commands keep their remainder
+// verbatim, and identifier commands answer --help only as the first token.
 function parseRaw(raw: string, config: typeof TASK | typeof CANCEL) {
   const argv = config.trailingText ? splitLeadingOptions(raw, config) : splitRawArgumentString(raw);
-  return parseArgs(argv, config);
+  const parsed = parseArgs(argv, config);
+  if (!config.trailingText && (argv[0] === "--help" || argv[0] === "-h")) {
+    (parsed.options as Record<string, unknown>).help = true;
+  }
+  return parsed;
 }
 
 test("prose that looks like an option stays in the prompt", () => {
@@ -108,4 +115,16 @@ test("pasted prose containing dashes does not fail an identifier command", () =>
 test("identifier commands still answer --help", () => {
   const { options } = parseRaw("--help", CANCEL);
   assert.equal(options.help, true);
+});
+
+// Identifier commands are handed arbitrary pasted text, so --help buried in it
+// must not print usage in place of the job result.
+test("--help inside pasted prose does not trigger help on identifier commands", () => {
+  const { options, positionals } = parseRaw("Verdict: needs-attention. Re-run with --help for usage", CANCEL);
+  assert.equal(options.help, undefined);
+  assert.equal(positionals[0], "Verdict:");
+});
+
+test("a quoted empty string is not treated as a job reference", () => {
+  assert.deepEqual(splitRawArgumentString("'' task-123"), ["task-123"]);
 });

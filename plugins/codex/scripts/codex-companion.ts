@@ -190,15 +190,30 @@ function parseCommandInput<const ValueOption extends string = never, const Boole
 ) {
   const merged = {
     ...config,
-    // Every command answers --help rather than sending it to Codex as a prompt.
-    booleanOptions: [...(config.booleanOptions ?? []), "help"] as (BooleanOption | "help")[],
+    // Free-text commands stop parsing options at the first positional, so a
+    // --help there can only be a real request. Identifier commands parse
+    // options anywhere and are handed arbitrary pasted text, so for them help
+    // is recognised only as the leading token, below.
+    booleanOptions: [...(config.booleanOptions ?? []), ...(config.trailingText ? (["help"] as const) : [])] as (
+      | BooleanOption
+      | "help"
+    )[],
     aliasMap: {
       C: "cwd",
-      h: "help",
+      ...(config.trailingText ? { h: "help" } : {}),
       ...(config.aliasMap ?? {})
     }
   };
-  return parseArgs(normalizeArgv(argv, merged), merged);
+  const normalized = normalizeArgv(argv, merged);
+  const parsed = parseArgs(normalized, merged);
+  if (!merged.trailingText && isHelpToken(normalized[0])) {
+    (parsed.options as AnyParsedOptions).help = true;
+  }
+  return parsed;
+}
+
+function isHelpToken(token: string | undefined): boolean {
+  return token === "--help" || token === "-h";
 }
 
 function requestedHelp(options: AnyParsedOptions): boolean {

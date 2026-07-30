@@ -179,7 +179,9 @@ function escapeMarkdownCell(value: unknown): string {
       // pipe and breaks out of the table cell.
       .replace(/\\/g, "\\\\")
       .replace(/\|/g, "\\|")
-      .replace(/\r?\n/g, " ")
+      // A lone carriage return is a line ending in CommonMark too, so it would
+      // split the row just as a newline does.
+      .replace(/[\r\n]+/g, " ")
       .trim()
   );
 }
