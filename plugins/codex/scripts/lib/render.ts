@@ -19,9 +19,7 @@ interface RawReviewResult {
   next_steps: unknown[];
 }
 
-type ReviewValidation =
-  | { ok: true; value: RawReviewResult }
-  | { ok: false; error: string };
+type ReviewValidation = { ok: true; value: RawReviewResult } | { ok: false; error: string };
 
 interface ParsedReviewResult {
   parsed?: unknown;
@@ -157,8 +155,7 @@ function isStructuredReviewStoredResult(storedJob: Partial<JobRecord> | null | u
     return false;
   }
   return (
-    Object.prototype.hasOwnProperty.call(result, "result") ||
-    Object.prototype.hasOwnProperty.call(result, "parseError")
+    Object.prototype.hasOwnProperty.call(result, "result") || Object.prototype.hasOwnProperty.call(result, "parseError")
   );
 }
 
@@ -232,7 +229,13 @@ function pushJobDetails(lines: string[], job: JobRecord, options: JobDetailsOpti
   if (job.status !== "queued" && job.status !== "running" && options.showResultHint) {
     lines.push(`  Result: /codex:result ${job.id}`);
   }
-  if (job.status !== "queued" && job.status !== "running" && job.jobClass === "task" && job.write && options.showReviewHint) {
+  if (
+    job.status !== "queued" &&
+    job.status !== "running" &&
+    job.jobClass === "task" &&
+    job.write &&
+    options.showReviewHint
+  ) {
     lines.push("  Review changes: /codex:review --wait");
     lines.push("  Stricter review: /codex:adversarial-review --wait");
   }
@@ -371,12 +374,7 @@ export function renderNativeReviewResult(
 ): string {
   const stdout = result.stdout.trim();
   const stderr = result.stderr.trim();
-  const lines = [
-    `# Codex ${meta.reviewLabel}`,
-    "",
-    `Target: ${meta.targetLabel}`,
-    ""
-  ];
+  const lines = [`# Codex ${meta.reviewLabel}`, "", `Target: ${meta.targetLabel}`, ""];
 
   if (stdout) {
     lines.push(stdout);
@@ -507,12 +505,7 @@ export function renderStoredJobResult(job: JobRecord, storedJob: Partial<JobReco
     return `${output}\nCodex session ID: ${threadId}\nResume in Codex: ${resumeCommand}\n`;
   }
 
-  const lines = [
-    `# ${job.title ?? "Codex Result"}`,
-    "",
-    `Job: ${job.id}`,
-    `Status: ${job.status}`
-  ];
+  const lines = [`# ${job.title ?? "Codex Result"}`, "", `Job: ${job.id}`, `Status: ${job.status}`];
 
   if (threadId) {
     lines.push(`Codex session ID: ${threadId}`);
@@ -535,12 +528,7 @@ export function renderStoredJobResult(job: JobRecord, storedJob: Partial<JobReco
 }
 
 export function renderCancelReport(job: JobRecord): string {
-  const lines = [
-    "# Codex Cancel",
-    "",
-    `Cancelled ${job.id}.`,
-    ""
-  ];
+  const lines = ["# Codex Cancel", "", `Cancelled ${job.id}.`, ""];
 
   if (job.title) {
     lines.push(`- Title: ${job.title}`);

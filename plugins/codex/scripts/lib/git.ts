@@ -145,7 +145,10 @@ export function getCurrentBranch(cwd: string): string {
 export function getWorkingTreeState(cwd: string) {
   const staged = gitChecked(cwd, ["diff", "--cached", "--name-only"]).stdout.trim().split("\n").filter(Boolean);
   const unstaged = gitChecked(cwd, ["diff", "--name-only"]).stdout.trim().split("\n").filter(Boolean);
-  const untracked = gitChecked(cwd, ["ls-files", "--others", "--exclude-standard"]).stdout.trim().split("\n").filter(Boolean);
+  const untracked = gitChecked(cwd, ["ls-files", "--others", "--exclude-standard"])
+    .stdout.trim()
+    .split("\n")
+    .filter(Boolean);
 
   return {
     staged,
@@ -300,7 +303,10 @@ function collectBranchContext(
   const includeDiff = options.includeDiff !== false;
   const comparison = options.comparison ?? buildBranchComparison(cwd, baseRef);
   const currentBranch = getCurrentBranch(cwd);
-  const changedFiles = gitChecked(cwd, ["diff", "--name-only", comparison.commitRange]).stdout.trim().split("\n").filter(Boolean);
+  const changedFiles = gitChecked(cwd, ["diff", "--name-only", comparison.commitRange])
+    .stdout.trim()
+    .split("\n")
+    .filter(Boolean);
   const logOutput = gitChecked(cwd, ["log", "--oneline", "--decorate", comparison.commitRange]).stdout.trim();
   const diffStat = gitChecked(cwd, ["diff", "--stat", comparison.commitRange]).stdout.trim();
 
@@ -334,11 +340,7 @@ function buildAdversarialCollectionGuidance(options: Pick<ReviewCollectionOption
   return "The repository context below is a lightweight summary. Inspect the target diff yourself with read-only git commands before finalizing findings.";
 }
 
-export function collectReviewContext(
-  cwd: string,
-  target: ResolvedReviewTarget,
-  options: ReviewCollectionOptions = {}
-) {
+export function collectReviewContext(cwd: string, target: ResolvedReviewTarget, options: ReviewCollectionOptions = {}) {
   const repoRoot = getRepoRoot(cwd);
   const currentBranch = getCurrentBranch(repoRoot);
   const maxInlineFiles = normalizeMaxInlineFiles(options.maxInlineFiles);
@@ -368,7 +370,10 @@ export function collectReviewContext(
       throw new Error("Branch review target is missing its base reference.");
     }
     const comparison = buildBranchComparison(repoRoot, baseRef);
-    const fileCount = gitChecked(repoRoot, ["diff", "--name-only", comparison.commitRange]).stdout.trim().split("\n").filter(Boolean).length;
+    const fileCount = gitChecked(repoRoot, ["diff", "--name-only", comparison.commitRange])
+      .stdout.trim()
+      .split("\n")
+      .filter(Boolean).length;
     diffBytes = measureGitOutputBytes(
       repoRoot,
       ["diff", "--binary", "--no-ext-diff", "--submodule=diff", comparison.commitRange],

@@ -150,10 +150,7 @@ function runStopReview(cwd: string, input: StopHookInput = {}): StopReviewResult
 
   try {
     const payload: unknown = JSON.parse(result.stdout.toString());
-    const rawOutput =
-      payload && typeof payload === "object" && "rawOutput" in payload
-        ? payload.rawOutput
-        : null;
+    const rawOutput = payload && typeof payload === "object" && "rawOutput" in payload ? payload.rawOutput : null;
     return parseStopReviewOutput(rawOutput);
   } catch {
     return {
@@ -194,7 +191,7 @@ function main(): void {
       decision: "block",
       reason: runningTaskNote
         ? `${runningTaskNote} ${review.reason ?? "The stop-time review did not pass."}`
-        : review.reason ?? "The stop-time review did not pass."
+        : (review.reason ?? "The stop-time review did not pass.")
     });
     return;
   }

@@ -122,9 +122,7 @@ export function loadState(cwd: string): CompanionState {
   return {
     version: typeof parsed.version === "number" ? parsed.version : STATE_VERSION,
     config,
-    jobs: Array.isArray(parsed.jobs)
-      ? parsed.jobs.filter((job) => isPersistedJobRecord(cwd, job))
-      : []
+    jobs: Array.isArray(parsed.jobs) ? parsed.jobs.filter((job) => isPersistedJobRecord(cwd, job)) : []
   };
 }
 
@@ -181,11 +179,7 @@ function withStateLock<Result>(cwd: string, action: () => Result): Result {
   }
 }
 
-function saveStateUnlocked(
-  cwd: string,
-  state: CompanionState,
-  previousJobs: readonly JobRecord[]
-): CompanionState {
+function saveStateUnlocked(cwd: string, state: CompanionState, previousJobs: readonly JobRecord[]): CompanionState {
   ensureStateDir(cwd);
   const nextJobs = pruneJobs((state.jobs ?? []).filter((job) => isPersistedJobRecord(cwd, job)));
   const nextState = {
@@ -219,21 +213,15 @@ function readTerminalJobFile(cwd: string, job: JobRecord): JobRecord | null {
   try {
     const storedJob = readJobFile(jobFile);
     const isTerminal =
-      storedJob.status === "completed" ||
-      storedJob.status === "failed" ||
-      storedJob.status === "cancelled";
-    return storedJob.id === job.id && isTerminal && isPersistedJobRecord(cwd, storedJob)
-      ? storedJob
-      : null;
+      storedJob.status === "completed" || storedJob.status === "failed" || storedJob.status === "cancelled";
+    return storedJob.id === job.id && isTerminal && isPersistedJobRecord(cwd, storedJob) ? storedJob : null;
   } catch {
     return null;
   }
 }
 
 export function saveState(cwd: string, state: CompanionState): CompanionState {
-  return withStateLock(cwd, () =>
-    saveStateUnlocked(cwd, state, loadState(cwd).jobs)
-  );
+  return withStateLock(cwd, () => saveStateUnlocked(cwd, state, loadState(cwd).jobs));
 }
 
 export function updateState(cwd: string, mutate: (state: CompanionState) => void): CompanionState {

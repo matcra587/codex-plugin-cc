@@ -1,10 +1,7 @@
 import { fs, os, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { afterEach } from "bun:test";
 
-import {
-  sendBrokerShutdown,
-  teardownBrokerSession
-} from "../plugins/codex/scripts/lib/broker-lifecycle.ts";
+import { sendBrokerShutdown, teardownBrokerSession } from "../plugins/codex/scripts/lib/broker-lifecycle.ts";
 import { isRecord } from "../plugins/codex/scripts/lib/validation.ts";
 
 const testStateRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-plugin-test-state-"));

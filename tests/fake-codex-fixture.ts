@@ -674,7 +674,6 @@ rl.on("line", (line) => {
 });
 `;
   writeExecutable(scriptPath, source);
-
 }
 
 export function buildEnv(binDir: string): Record<string, string | undefined> {

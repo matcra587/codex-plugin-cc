@@ -25,11 +25,7 @@ export function runCommand(command: string, args: string[] = [], options: Comman
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       ...(options.env === undefined ? {} : { env: options.env }),
       stdin:
-        options.input == null
-          ? stdio === "ignore"
-            ? "ignore"
-            : undefined
-          : new TextEncoder().encode(options.input),
+        options.input == null ? (stdio === "ignore" ? "ignore" : undefined) : new TextEncoder().encode(options.input),
       stdout: stdio,
       stderr: stdio
     });
@@ -118,10 +114,7 @@ export function isProcessAlive(
   }
 }
 
-export function terminateProcessTree(
-  pid: number,
-  options: { killImpl?: (pid: number, signal: string) => void } = {}
-) {
+export function terminateProcessTree(pid: number, options: { killImpl?: (pid: number, signal: string) => void } = {}) {
   if (!Number.isFinite(pid)) {
     return { attempted: false, delivered: false, method: null };
   }

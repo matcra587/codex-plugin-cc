@@ -1,4 +1,3 @@
-
 import { path } from "./platform.ts";
 
 export interface BrokerEndpoint {

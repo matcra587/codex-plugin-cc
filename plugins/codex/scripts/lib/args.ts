@@ -5,10 +5,9 @@ export interface ParseArgsConfig<ValueOption extends string = string, BooleanOpt
 }
 
 export type ParsedOption = string | boolean;
-export type ParsedOptions<
-  ValueOption extends string = never,
-  BooleanOption extends string = never
-> = Partial<Record<ValueOption, string>> &
+export type ParsedOptions<ValueOption extends string = never, BooleanOption extends string = never> = Partial<
+  Record<ValueOption, string>
+> &
   Partial<Record<BooleanOption, boolean>> &
   Record<string, ParsedOption | undefined>;
 export type AnyParsedOptions = Record<string, ParsedOption | undefined>;
@@ -129,7 +128,7 @@ export function splitRawArgumentString(raw: string): string[] {
       continue;
     }
 
-    if (character === "'" || character === "\"") {
+    if (character === "'" || character === '"') {
       quote = character;
       continue;
     }

@@ -141,8 +141,7 @@ function isTaskRequest(value: unknown): value is TaskRequest {
     isRecord(value) &&
     typeof value.cwd === "string" &&
     (value.model === null || typeof value.model === "string") &&
-    (value.effort === null ||
-      (typeof value.effort === "string" && REASONING_EFFORT_SET.has(value.effort))) &&
+    (value.effort === null || (typeof value.effort === "string" && REASONING_EFFORT_SET.has(value.effort))) &&
     typeof value.prompt === "string" &&
     typeof value.write === "boolean" &&
     typeof value.resumeLast === "boolean" &&

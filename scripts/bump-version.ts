@@ -60,9 +60,7 @@ const TARGETS = [
         label: "metadata.version",
         get: (json) => {
           const metadata = json.metadata;
-          return metadata && typeof metadata === "object" && !Array.isArray(metadata)
-            ? metadata.version
-            : undefined;
+          return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata.version : undefined;
         },
         set: (json, version) => {
           requireObject(json.metadata, ".claude-plugin/marketplace.json metadata");

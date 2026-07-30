@@ -7,11 +7,7 @@ import { BROKER_BUSY_RPC_CODE, CodexAppServerClient } from "./lib/app-server.ts"
 import { parseBrokerEndpoint } from "./lib/broker-endpoint.ts";
 import { isJsonRpcMessage, type JsonRpcMessage } from "./lib/json-rpc.ts";
 import { isRecord } from "./lib/validation.ts";
-import type {
-  AppServerMethod,
-  AppServerNotification,
-  AppServerRequestParams
-} from "./lib/app-server-protocol";
+import type { AppServerMethod, AppServerNotification, AppServerRequestParams } from "./lib/app-server-protocol";
 
 type AppServerClient = Awaited<ReturnType<typeof CodexAppServerClient.connect>>;
 
@@ -50,11 +46,7 @@ function isAppServerMethod(method: string): method is AppServerMethod {
   return APP_SERVER_METHODS.has(method);
 }
 
-function requestAppServer(
-  client: AppServerClient,
-  method: AppServerMethod,
-  params: unknown
-): Promise<unknown> {
+function requestAppServer(client: AppServerClient, method: AppServerMethod, params: unknown): Promise<unknown> {
   // The broker only accepts allow-listed methods. Codex app-server remains the
   // runtime authority for each generated method's parameter schema.
   return client.request(method, params as AppServerRequestParams<typeof method>);
@@ -73,20 +65,14 @@ function buildStreamThreadIds(method: AppServerMethod, params: unknown, result: 
   return threadIds;
 }
 
-function buildActiveStreamTurn(
-  method: AppServerMethod,
-  params: unknown,
-  result: unknown
-): ActiveStreamTurn | null {
+function buildActiveStreamTurn(method: AppServerMethod, params: unknown, result: unknown): ActiveStreamTurn | null {
   if (method !== "turn/start" && method !== "review/start") {
     return null;
   }
   const turn = isRecord(result) && isRecord(result.turn) ? result.turn : null;
   const turnId = turn ? stringProperty(turn, "id") : null;
   const threadId =
-    method === "review/start"
-      ? stringProperty(result, "reviewThreadId")
-      : stringProperty(params, "threadId");
+    method === "review/start" ? stringProperty(result, "reviewThreadId") : stringProperty(params, "threadId");
   return threadId && turnId ? { threadId, turnId } : null;
 }
 
@@ -117,7 +103,9 @@ function writePidFile(pidFile: string | null): void {
 async function main(): Promise<void> {
   const [subcommand, ...argv] = process.argv.slice(2);
   if (subcommand !== "launch" && subcommand !== "serve") {
-    throw new Error("Usage: bun scripts/app-server-broker.ts <launch|serve> --endpoint <value> [--cwd <path>] [--pid-file <path>] [--log-file <path>]");
+    throw new Error(
+      "Usage: bun scripts/app-server-broker.ts <launch|serve> --endpoint <value> [--cwd <path>] [--pid-file <path>] [--log-file <path>]"
+    );
   }
 
   const { options } = parseArgs(argv, {
@@ -141,17 +129,7 @@ async function main(): Promise<void> {
     const scriptPath = Bun.fileURLToPath(import.meta.url);
     const log = Bun.file(logFile);
     const child = Bun.spawn(
-      [
-        process.execPath,
-        scriptPath,
-        "serve",
-        "--endpoint",
-        endpoint,
-        "--cwd",
-        cwd,
-        "--pid-file",
-        pidFile
-      ],
+      [process.execPath, scriptPath, "serve", "--endpoint", endpoint, "--cwd", cwd, "--pid-file", pidFile],
       {
         cwd,
         env: process.env,
@@ -296,7 +274,8 @@ async function main(): Promise<void> {
         isInterruptRequest(message) && activeStreamSocket && activeStreamSocket !== socket && !activeRequestSocket;
 
       if (
-        ((activeRequestSocket && activeRequestSocket !== socket) || (activeStreamSocket && activeStreamSocket !== socket)) &&
+        ((activeRequestSocket && activeRequestSocket !== socket) ||
+          (activeStreamSocket && activeStreamSocket !== socket)) &&
         !allowInterruptDuringActiveStream
       ) {
         send(socket, {

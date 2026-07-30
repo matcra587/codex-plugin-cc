@@ -21,7 +21,10 @@ test("review command uses AskUserQuestion and background Bash while staying revi
   assert.match(source, /review "\$ARGUMENTS"/);
   assert.match(source, /\[--scope auto\|working-tree\|branch\]/);
   assert.match(source, /run_in_background:\s*true/);
-  assert.match(source, /command:\s*`bun "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/codex-companion\.ts" review "\$ARGUMENTS"`/);
+  assert.match(
+    source,
+    /command:\s*`bun "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/codex-companion\.ts" review "\$ARGUMENTS"`/
+  );
   assert.match(source, /description:\s*"Codex review"/);
   assert.match(source, /Do not call `BashOutput`/);
   assert.match(source, /Return the command stdout verbatim, exactly as-is/i);
@@ -49,7 +52,10 @@ test("adversarial review command uses AskUserQuestion and background Bash while 
   assert.match(source, /adversarial-review "\$ARGUMENTS"/);
   assert.match(source, /\[--scope auto\|working-tree\|branch\] \[focus \.\.\.\]/);
   assert.match(source, /run_in_background:\s*true/);
-  assert.match(source, /command:\s*`bun "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/codex-companion\.ts" adversarial-review "\$ARGUMENTS"`/);
+  assert.match(
+    source,
+    /command:\s*`bun "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/codex-companion\.ts" adversarial-review "\$ARGUMENTS"`/
+  );
   assert.match(source, /description:\s*"Codex adversarial review"/);
   assert.match(source, /Do not call `BashOutput`/);
   assert.match(source, /Return the command stdout verbatim, exactly as-is/i);
@@ -131,17 +137,26 @@ test("rescue command absorbs continue semantics", () => {
   assert.doesNotMatch(agent, /CLAUDE_PLUGIN_ROOT/);
   assert.match(agent, /default to `task --background` unless the user explicitly selected `--wait`/i);
   assert.match(agent, /Use exactly one `Bash` call/i);
-  assert.match(agent, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
+  assert.match(
+    agent,
+    /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i
+  );
   assert.match(agent, /Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
   assert.match(agent, /Leave `--effort` unset unless the user explicitly requests a specific reasoning effort/i);
   assert.match(agent, /Leave model unset by default/i);
   assert.match(agent, /If the user asks for `spark`, map that to `--model gpt-5\.3-codex-spark`/i);
-  assert.match(agent, /If the user asks for a concrete model name such as `gpt-5\.6-sol`, pass it through with `--model`/i);
+  assert.match(
+    agent,
+    /If the user asks for a concrete model name such as `gpt-5\.6-sol`, pass it through with `--model`/i
+  );
   assert.match(agent, /Return the stdout of the `codex-companion` command exactly as-is/i);
   assert.match(agent, /If the Bash call fails or Codex cannot be invoked, return the failure output and stop/i);
   assert.match(agent, /codex-prompting/);
   assert.match(agent, /only to tighten the user's request into a better Codex prompt/i);
-  assert.match(agent, /Do not use that skill to inspect the repository, reason through the problem yourself, draft a solution, or do any independent work/i);
+  assert.match(
+    agent,
+    /Do not use that skill to inspect the repository, reason through the problem yourself, draft a solution, or do any independent work/i
+  );
   assert.match(runtimeSkill, /only job is to invoke `task` once and return that stdout unchanged/i);
   assert.doesNotMatch(runtimeSkill, /CLAUDE_PLUGIN_ROOT/);
   assert.match(runtimeSkill, /Do not call `setup`, `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
@@ -152,8 +167,14 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(runtimeSkill, /Map `spark` to `--model gpt-5\.3-codex-spark`/i);
   assert.match(runtimeSkill, /Forward `--background` to `task`/i);
   assert.match(runtimeSkill, /Strip `--wait` before calling `task`/i);
-  assert.match(runtimeSkill, /`--effort`: accepted values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`/i);
-  assert.match(runtimeSkill, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
+  assert.match(
+    runtimeSkill,
+    /`--effort`: accepted values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`/i
+  );
+  assert.match(
+    runtimeSkill,
+    /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i
+  );
   assert.match(runtimeSkill, /If the Bash call fails or Codex cannot be invoked, return the failure output and stop/i);
   assert.match(readme, /`codex:codex-rescue` subagent/i);
   assert.match(readme, /if you do not pass `--model` or `--effort`, Codex chooses its own defaults/i);
@@ -185,7 +206,10 @@ test("transfer, result, and cancel commands are exposed as deterministic runtime
   assert.match(result, /codex-companion\.ts" result "\$ARGUMENTS"/);
   assert.match(cancel, /disable-model-invocation:\s*true/);
   assert.match(cancel, /codex-companion\.ts" cancel "\$ARGUMENTS"/);
-  assert.match(resultHandling, /do not turn a failed or incomplete Codex run into a Claude-side implementation attempt/i);
+  assert.match(
+    resultHandling,
+    /do not turn a failed or incomplete Codex run into a Claude-side implementation attempt/i
+  );
   assert.match(resultHandling, /if Codex was never successfully invoked, do not generate a substitute answer at all/i);
 });
 

@@ -19,12 +19,7 @@ export function isJsonRpcMessage(value: unknown): value is JsonRpcMessage {
     return false;
   }
 
-  if (
-    value.id !== undefined &&
-    value.id !== null &&
-    typeof value.id !== "number" &&
-    typeof value.id !== "string"
-  ) {
+  if (value.id !== undefined && value.id !== null && typeof value.id !== "number" && typeof value.id !== "string") {
     return false;
   }
   if (value.method !== undefined && typeof value.method !== "string") {

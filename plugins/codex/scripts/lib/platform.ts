@@ -270,16 +270,13 @@ function mkdirSync(directory: PathLike, options: { recursive?: boolean; mode?: n
     : [directoryPath];
 
   for (const target of targets) {
-    const requestedMode = target === directoryPath ? options.mode ?? 0o777 : 0o777;
+    const requestedMode = target === directoryPath ? (options.mode ?? 0o777) : 0o777;
     if (callPath(libc.symbols.mkdir, target, requestedMode) !== 0 && !isDirectory(target)) {
       throw new Error(`Unable to create directory ${target}`);
     }
   }
 
-  if (
-    options.mode !== undefined &&
-    callPath(libc.symbols.chmod, directoryPath, options.mode) !== 0
-  ) {
+  if (options.mode !== undefined && callPath(libc.symbols.chmod, directoryPath, options.mode) !== 0) {
     throw new Error(`Unable to change mode for ${directoryPath}`);
   }
 }

@@ -86,10 +86,7 @@ test("resolveStateDir uses CLAUDE_PLUGIN_DATA when it is provided", () => {
 
     assert.equal(stateDir.startsWith(path.join(pluginDataDir, "state")), true);
     assert.match(path.basename(stateDir), /.+-[a-f0-9]{16}$/);
-    assert.match(
-      stateDir,
-      new RegExp(`^${path.join(pluginDataDir, "state").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)
-    );
+    assert.match(stateDir, new RegExp(`^${path.join(pluginDataDir, "state").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   } finally {
     if (previousPluginDataDir == null) {
       delete process.env.CLAUDE_PLUGIN_DATA;
@@ -240,7 +237,10 @@ test("concurrent state writers retain every job", async () => {
   );
 
   const statuses = await Promise.all(writers.map((writer) => writer.exited));
-  assert.deepEqual(statuses, Array.from({ length: writers.length }, () => 0));
+  assert.deepEqual(
+    statuses,
+    Array.from({ length: writers.length }, () => 0)
+  );
   assert.deepEqual(
     listJobs(workspace)
       .map((job) => job.id)

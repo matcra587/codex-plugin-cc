@@ -174,9 +174,7 @@ export function spawnBrokerProcess({
   );
   const detail = launched.stderr.toString().trim();
   if (launched.exitCode !== 0) {
-    throw new Error(
-      `Unable to launch the shared Codex broker${detail ? `: ${detail}` : "."}`
-    );
+    throw new Error(`Unable to launch the shared Codex broker${detail ? `: ${detail}` : "."}`);
   }
   const pid = Number(launched.stdout.toString().trim());
   if (!Number.isSafeInteger(pid) || pid <= 1) {
@@ -267,9 +265,7 @@ export async function ensureBrokerSession(cwd: string, options: EnsureBrokerSess
   const endpoint = endpointFactory(sessionDir);
   const pidFile = path.join(sessionDir, "broker.pid");
   const logFile = path.join(sessionDir, "broker.log");
-  const scriptPath =
-    options.scriptPath ??
-    Bun.fileURLToPath(new URL("../app-server-broker.ts", import.meta.url));
+  const scriptPath = options.scriptPath ?? Bun.fileURLToPath(new URL("../app-server-broker.ts", import.meta.url));
 
   const child = spawnBrokerProcess({
     scriptPath,

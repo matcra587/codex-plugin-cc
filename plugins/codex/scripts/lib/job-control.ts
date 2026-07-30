@@ -96,10 +96,7 @@ export function readJobProgressPreview(
   return lines.slice(-maxLines);
 }
 
-function formatElapsedDuration(
-  startValue: string | null | undefined,
-  endValue: string | null = null
-): string | null {
+function formatElapsedDuration(startValue: string | null | undefined, endValue: string | null = null): string | null {
   const start = Date.parse(startValue ?? "");
   if (!Number.isFinite(start)) {
     return null;
@@ -184,10 +181,7 @@ function inferLegacyJobPhase(job: JobRecord, progressPreview: string[] = []): st
   return job.jobClass === "review" ? "reviewing" : "running";
 }
 
-export function enrichJob(
-  job: JobRecord,
-  options: { maxProgressLines?: number | undefined } = {}
-): EnrichedJob {
+export function enrichJob(job: JobRecord, options: { maxProgressLines?: number | undefined } = {}): EnrichedJob {
   const maxProgressLines = options.maxProgressLines ?? DEFAULT_MAX_PROGRESS_LINES;
   const enriched = {
     ...job,
@@ -292,7 +286,9 @@ export function buildSingleJobSnapshot(
 
 export function resolveResultJob(cwd: string, reference?: string | null) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
-  const jobs = sortJobsNewestFirst(reference ? listJobs(workspaceRoot) : filterJobsForCurrentSession(listJobs(workspaceRoot)));
+  const jobs = sortJobsNewestFirst(
+    reference ? listJobs(workspaceRoot) : filterJobsForCurrentSession(listJobs(workspaceRoot))
+  );
   const selected = matchJobReference(
     jobs,
     reference,
@@ -315,11 +311,7 @@ export function resolveResultJob(cwd: string, reference?: string | null) {
   throw new Error("No finished Codex jobs found for this repository yet.");
 }
 
-export function resolveCancelableJob(
-  cwd: string,
-  reference?: string | null,
-  options: EnvironmentOptions = {}
-) {
+export function resolveCancelableJob(cwd: string, reference?: string | null, options: EnvironmentOptions = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobs = sortJobsNewestFirst(listJobs(workspaceRoot));
   const activeJobs = jobs.filter((job) => job.status === "queued" || job.status === "running");

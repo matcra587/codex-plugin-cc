@@ -130,7 +130,9 @@ function buildTurnInput(prompt: string): UserInput[] {
 }
 
 function shorten(text: unknown, limit = 72): string {
-  const normalized = String(text ?? "").trim().replace(/\s+/g, " ");
+  const normalized = String(text ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
   if (!normalized) {
     return "";
   }
@@ -184,7 +186,9 @@ function collectTouchedFiles(fileChanges: FileChangeItem[]): string[] {
 }
 
 function normalizeReasoningText(text: unknown): string {
-  return String(text ?? "").replace(/\s+/g, " ").trim();
+  return String(text ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function extractReasoningSections(value: unknown): string[] {
@@ -247,10 +251,7 @@ function emitProgress(
   onProgress({ message, phase, ...extra });
 }
 
-function emitLogEvent(
-  onProgress: ProgressReporter | null | undefined,
-  options: Partial<ProgressUpdate> = {}
-) {
+function emitLogEvent(onProgress: ProgressReporter | null | undefined, options: Partial<ProgressUpdate> = {}) {
   if (!onProgress) {
     return;
   }
@@ -274,7 +275,12 @@ function labelForThread(state: TurnCaptureState, threadId: string | null | undef
 function registerThread(
   state: TurnCaptureState,
   threadId: string | null | undefined,
-  options: { threadName?: string | null; name?: string | null; agentNickname?: string | null; agentRole?: string | null } = {}
+  options: {
+    threadName?: string | null;
+    name?: string | null;
+    agentNickname?: string | null;
+    agentRole?: string | null;
+  } = {}
 ) {
   if (!threadId) {
     return;
@@ -400,11 +406,7 @@ function clearCompletionTimer(state: TurnCaptureState) {
   }
 }
 
-function completeTurn(
-  state: TurnCaptureState,
-  turn: Turn | null = null,
-  options: { inferred?: boolean } = {}
-) {
+function completeTurn(state: TurnCaptureState, turn: Turn | null = null, options: { inferred?: boolean } = {}) {
   if (state.completed) {
     return;
   }
@@ -431,7 +433,11 @@ function completeTurn(
   }
 
   if (options.inferred) {
-    emitProgress(state.onProgress, "Turn completion inferred after the main thread finished and subagent work drained.", "finalizing");
+    emitProgress(
+      state.onProgress,
+      "Turn completion inferred after the main thread finished and subagent work drained.",
+      "finalizing"
+    );
   }
 
   state.resolveCompletion(state);
@@ -470,12 +476,7 @@ function belongsToTurn(state: TurnCaptureState, message: AppServerNotification):
   return trackedTurnId === null || messageTurnId === null || messageTurnId === trackedTurnId;
 }
 
-function recordItem(
-  state: TurnCaptureState,
-  item: ThreadItem,
-  lifecycle: string,
-  threadId: string | null = null
-) {
+function recordItem(state: TurnCaptureState, item: ThreadItem, lifecycle: string, threadId: string | null = null) {
   if (item.type === "collabAgentToolCall") {
     if (!threadId || threadId === state.threadId) {
       if (lifecycle === "started" || item.status === "inProgress") {
@@ -507,7 +508,9 @@ function recordItem(
       if (lifecycle === "completed") {
         const sourceLabel = labelForThread(state, threadId);
         emitLogEvent(state.onProgress, {
-          message: sourceLabel ? `Subagent ${sourceLabel}: ${shorten(item.text, 96)}` : `Assistant message captured: ${shorten(item.text, 96)}`,
+          message: sourceLabel
+            ? `Subagent ${sourceLabel}: ${shorten(item.text, 96)}`
+            : `Assistant message captured: ${shorten(item.text, 96)}`,
           stderrMessage: null,
           phase: item.phase === "final_answer" ? "finalizing" : null,
           logTitle: sourceLabel ? `Subagent ${sourceLabel} message` : "Assistant message",
@@ -864,10 +867,7 @@ function normalizeProviderId(value: unknown): string | null {
   return providerId || null;
 }
 
-function formatProviderLabel(
-  providerId: string | null,
-  providerConfig: { name?: unknown } | null = null
-): string {
+function formatProviderLabel(providerId: string | null, providerConfig: { name?: unknown } | null = null): string {
   const configuredName = typeof providerConfig?.name === "string" ? providerConfig.name.trim() : "";
   if (configuredName) {
     return configuredName;
@@ -1007,10 +1007,7 @@ export function getCodexAvailability(cwd: string) {
   };
 }
 
-export function getSessionRuntimeStatus(
-  env: Record<string, string | undefined> = process.env,
-  cwd = process.cwd()
-) {
+export function getSessionRuntimeStatus(env: Record<string, string | undefined> = process.env, cwd = process.cwd()) {
   const endpoint = env?.[BROKER_ENDPOINT_ENV] ?? loadBrokerSession(cwd)?.endpoint ?? null;
   if (endpoint) {
     return {
@@ -1029,10 +1026,7 @@ export function getSessionRuntimeStatus(
   };
 }
 
-export async function getCodexAuthStatus(
-  cwd: string,
-  options: { env?: Record<string, string | undefined> } = {}
-) {
+export async function getCodexAuthStatus(cwd: string, options: { env?: Record<string, string | undefined> } = {}) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
     return {
@@ -1124,7 +1118,9 @@ export async function runAppServerReview(
 ) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`.");
+    throw new Error(
+      "Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`."
+    );
   }
 
   return withAppServer(cwd, async (client) => {
@@ -1183,7 +1179,9 @@ export async function importExternalAgentSession(
 ) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`.");
+    throw new Error(
+      "Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`."
+    );
   }
   const sourcePath = options.sourcePath;
   if (!sourcePath) {
@@ -1235,7 +1233,9 @@ export async function runAppServerTurn(
 ) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`.");
+    throw new Error(
+      "Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`."
+    );
   }
 
   return withAppServer(cwd, async (client) => {
@@ -1255,7 +1255,7 @@ export async function runAppServerTurn(
         model: options.model,
         sandbox: options.sandbox,
         ephemeral: options.persistThread ? false : true,
-        threadName: options.persistThread ? options.threadName : options.threadName ?? null
+        threadName: options.persistThread ? options.threadName : (options.threadName ?? null)
       });
       threadId = response.thread.id;
     }
@@ -1302,7 +1302,9 @@ export async function runAppServerTurn(
 export async function findLatestTaskThread(cwd: string) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`.");
+    throw new Error(
+      "Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`."
+    );
   }
 
   return withAppServer(cwd, async (client) => {

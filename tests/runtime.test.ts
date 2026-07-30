@@ -233,7 +233,9 @@ test("transfer delegates the current Claude session directly to native import", 
       { type: "user", cwd: repo, message: { role: "user", content: "Initial request" } },
       { type: "assistant", cwd: repo, message: { role: "assistant", content: "Initial answer" } },
       { type: "user", cwd: repo, message: { role: "user", content: "/codex:transfer" } }
-    ].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join("\n") + "\n",
     "utf8"
   );
   const result = run("bun", [SCRIPT, "transfer", "--json"], {
@@ -491,7 +493,10 @@ test("review includes reasoning output when the app server returns it", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Reasoning:/);
-  assert.match(result.stdout, /Reviewed the changed files and checked the likely regression paths first|Reviewed the changed files and checked the likely regression paths/i);
+  assert.match(
+    result.stdout,
+    /Reviewed the changed files and checked the likely regression paths first|Reviewed the changed files and checked the likely regression paths/i
+  );
 });
 
 test("review logs reasoning summaries and review output to the job log", () => {
@@ -1241,8 +1246,14 @@ test("status shows phases, hints, and the latest finished job", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Active jobs:/);
-  assert.match(result.stdout, /\| Job \| Kind \| Status \| Phase \| Elapsed \| Codex Session ID \| Summary \| Actions \|/);
-  assert.match(result.stdout, /\| review-live \| review \| running \| reviewing \| .* \| thr_1 \| Review working tree diff \|/);
+  assert.match(
+    result.stdout,
+    /\| Job \| Kind \| Status \| Phase \| Elapsed \| Codex Session ID \| Summary \| Actions \|/
+  );
+  assert.match(
+    result.stdout,
+    /\| review-live \| review \| running \| reviewing \| .* \| thr_1 \| Review working tree diff \|/
+  );
   assert.match(result.stdout, /`\/codex:status review-live`<br>`\/codex:cancel review-live`/);
   assert.match(result.stdout, /Live details:/);
   assert.match(result.stdout, /Latest finished:/);
@@ -1323,10 +1334,7 @@ test("status without a job id only shows jobs from the current Claude session", 
   });
 
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(
-    [...new Set(result.stdout.match(/review-(?:current|other)/g) ?? [])],
-    ["review-current"]
-  );
+  assert.deepEqual([...new Set(result.stdout.match(/review-(?:current|other)/g) ?? [])], ["review-current"]);
 });
 
 test("status preserves adversarial review kind labels", () => {
@@ -1848,14 +1856,19 @@ test("cancel sends turn interrupt to the shared app-server before killing a brok
   assert.ok(jobId);
 
   const stateDir = resolveStateDir(repo);
-  const runningJob = await waitFor(() => {
-    const state = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8"));
-    const job = state.jobs.find((candidate: { id: string; status?: string; threadId?: string; turnId?: string }) => candidate.id === jobId);
-    if (job?.status === "running" && job.threadId && job.turnId) {
-      return job;
-    }
-    return null;
-  }, { timeoutMs: 15000 });
+  const runningJob = await waitFor(
+    () => {
+      const state = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8"));
+      const job = state.jobs.find(
+        (candidate: { id: string; status?: string; threadId?: string; turnId?: string }) => candidate.id === jobId
+      );
+      if (job?.status === "running" && job.threadId && job.turnId) {
+        return job;
+      }
+      return null;
+    },
+    { timeoutMs: 15000 }
+  );
 
   const cancelResult = run("bun", [SCRIPT, "cancel", jobId, "--json"], {
     cwd: repo,
@@ -1906,14 +1919,17 @@ test("broker interrupts an ownerless turn when its worker disconnects", async ()
   const jobId = JSON.parse(launched.stdout).jobId;
 
   const stateDir = resolveStateDir(repo);
-  const runningJob = await waitFor(() => {
-    const state = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8"));
-    const job = state.jobs.find(
-      (candidate: { id: string; status?: string; threadId?: string; turnId?: string; pid?: number }) =>
-        candidate.id === jobId
-    );
-    return job?.status === "running" && job.threadId && job.turnId && job.pid ? job : null;
-  }, { timeoutMs: 15_000 });
+  const runningJob = await waitFor(
+    () => {
+      const state = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8"));
+      const job = state.jobs.find(
+        (candidate: { id: string; status?: string; threadId?: string; turnId?: string; pid?: number }) =>
+          candidate.id === jobId
+      );
+      return job?.status === "running" && job.threadId && job.turnId && job.pid ? job : null;
+    },
+    { timeoutMs: 15_000 }
+  );
 
   const brokerSession = loadBrokerSession(repo);
   if (!brokerSession?.pid) {
@@ -2061,7 +2077,10 @@ test("session end fully cleans up jobs for the ending session", async () => {
   });
 
   const state = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8"));
-  assert.deepEqual(state.jobs.map((job: { id: string }) => job.id), ["review-other"]);
+  assert.deepEqual(
+    state.jobs.map((job: { id: string }) => job.id),
+    ["review-other"]
+  );
   const otherJob = state.jobs[0];
   assert.equal(otherJob.logFile, otherSessionLog);
 });

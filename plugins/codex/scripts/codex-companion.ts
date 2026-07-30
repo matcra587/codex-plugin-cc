@@ -24,14 +24,7 @@ import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "
 import type { ResolvedReviewTarget } from "./lib/git.ts";
 import { binaryAvailable, terminateProcessTree } from "./lib/process.ts";
 import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.ts";
-import {
-  generateJobId,
-  getConfig,
-  listJobs,
-  setConfig,
-  upsertJob,
-  writeJobFile
-} from "./lib/state.ts";
+import { generateJobId, getConfig, listJobs, setConfig, upsertJob, writeJobFile } from "./lib/state.ts";
 import {
   buildSingleJobSnapshot,
   buildStatusSnapshot,
@@ -167,9 +160,7 @@ function normalizeReasoningEffort(effort: unknown): ReasoningEffort | null {
   }
   const matchedEffort = REASONING_EFFORTS.find((candidate) => candidate === normalized);
   if (!matchedEffort) {
-    throw new Error(
-      `Unsupported reasoning effort "${effort}". Use one of: ${REASONING_EFFORTS.join(", ")}.`
-    );
+    throw new Error(`Unsupported reasoning effort "${effort}". Use one of: ${REASONING_EFFORTS.join(", ")}.`);
   }
   return matchedEffort;
 }
@@ -211,7 +202,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 function shorten(text: unknown, limit = 96): string {
-  const normalized = String(text ?? "").trim().replace(/\s+/g, " ");
+  const normalized = String(text ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
   if (!normalized) {
     return "";
   }
@@ -242,7 +235,9 @@ async function buildSetupReport(cwd: string, actionsTaken: string[] = []) {
   }
   if (codexStatus.available && !authStatus.loggedIn && authStatus.requiresOpenaiAuth) {
     nextSteps.push("Run `!codex login`.");
-    nextSteps.push("If browser login is blocked, retry with `!codex login --device-auth` or `!codex login --with-api-key`.");
+    nextSteps.push(
+      "If browser login is blocked, retry with `!codex login --device-auth` or `!codex login --with-api-key`."
+    );
   }
   if (!config.stopReviewGate) {
     nextSteps.push("Optional: run `/codex:setup --enable-review-gate` to require a fresh review before stop.");
@@ -300,7 +295,9 @@ function buildAdversarialReviewPrompt(context: ReviewContext, focusText: string)
 function ensureCodexAvailable(cwd: string): void {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
-    throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`.");
+    throw new Error(
+      "Codex CLI is not installed or is missing required runtime support. Install it with `bun add --global @openai/codex@latest`, then rerun `/codex:setup`."
+    );
   }
 }
 
@@ -393,7 +390,9 @@ async function resolveLatestTrackedTaskThread(
   const sessionId = getCurrentClaudeSessionId();
   const jobs = sortJobsNewestFirst(listJobs(workspaceRoot)).filter((job) => job.id !== options.excludeJobId);
   const visibleJobs = filterJobsForCurrentClaudeSession(jobs);
-  const activeTask = visibleJobs.find((job) => job.jobClass === "task" && (job.status === "queued" || job.status === "running"));
+  const activeTask = visibleJobs.find(
+    (job) => job.jobClass === "task" && (job.status === "queued" || job.status === "running")
+  );
   if (activeTask) {
     throw new Error(`Task ${activeTask.id} is still running. Use /codex:status before continuing it.`);
   }
@@ -505,13 +504,15 @@ async function executeReviewRun(request: ReviewRunRequest) {
       targetLabel: context.target.label,
       reasoningSummary: result.reasoningSummary
     }),
-    summary: parsed.parsed?.summary ?? parsed.parseError ?? firstMeaningfulLine(result.finalMessage, `${reviewName} finished.`),
+    summary:
+      parsed.parsed?.summary ??
+      parsed.parseError ??
+      firstMeaningfulLine(result.finalMessage, `${reviewName} finished.`),
     jobTitle: `Codex ${reviewName}`,
     jobClass: "review",
     targetLabel: context.target.label
   };
 }
-
 
 async function executeTaskRun(request: TaskRunRequest) {
   const workspaceRoot = resolveWorkspaceRoot(request.cwd);
@@ -550,7 +551,7 @@ async function executeTaskRun(request: TaskRunRequest) {
   });
 
   const rawOutput = typeof result.finalMessage === "string" ? result.finalMessage : "";
-  const failureMessage = result.error instanceof Error ? result.error.message : result.stderr ?? "";
+  const failureMessage = result.error instanceof Error ? result.error.message : (result.stderr ?? "");
   const rendered = renderTaskResult(
     {
       rawOutput,
