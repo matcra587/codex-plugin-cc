@@ -13,7 +13,7 @@
     "bump-version": "bun scripts/bump-version.ts",
     "check-version": "bun scripts/bump-version.ts --check",
     "generate:types": "mkdir -p plugins/codex/.generated/app-server-types && codex app-server generate-ts --out plugins/codex/.generated/app-server-types",
-    "typecheck": "bunx tsc -p tsconfig.app-server.json",
+    "typecheck": "bunx tsc",
     "build": "bun run generate:types && bun run typecheck",
     "test": "bun test",
     "format": "bunx --bun @biomejs/biome format --write",
