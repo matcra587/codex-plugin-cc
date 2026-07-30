@@ -5,6 +5,35 @@
 
 # Changelog
 
+## 2.1.0
+
+### Added
+
+- Brokers reap themselves once genuinely idle. A broker deliberately outlives
+  the command that spawned it so the next one reuses a warm app-server, but
+  nothing reaped it when its session went away without a SessionEnd hook — a
+  crash, a closed terminal, a suspended machine. It and its Codex child then
+  stayed up for as long as the machine did. Measured while developing this:
+  58 orphaned brokers, 61 Codex children, about 5.2GB resident.
+
+  Reaping needs sustained inactivity, not a disconnect. Clients connect per
+  operation and disconnect straight after, so a live session between commands
+  has no sockets either. A broker is only a candidate when it has no sockets,
+  no active request and no streaming turn, and has seen no activity for the
+  whole window — so a broker serving another session is never reaped.
+
+  Thirty minutes by default. `CODEX_COMPANION_BROKER_IDLE_MS` overrides it and
+  `0` disables it.
+
+### Fixed
+
+- Shutdown stops accepting connections before tearing down the Codex child.
+  Closing the client first left the endpoint answering `initialize` for as long
+  as the child took to exit, so a command could attach to a dying broker and
+  then fail with an error it does not retry.
+- Teardown finishes even if removing the socket or pid file fails, rather than
+  aborting and leaving the child running.
+
 ## 2.0.3
 
 ### Fixed
