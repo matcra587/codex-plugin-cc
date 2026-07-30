@@ -1,7 +1,6 @@
 import { test } from "bun:test";
-import { assert } from "./assertions.ts";
-
 import { terminateProcessTree } from "../plugins/codex/scripts/lib/process.ts";
+import { assert } from "./assertions.ts";
 
 test("terminateProcessTree signals the Unix process group", () => {
   let captured: { pid: number; signal: string } | null = null;

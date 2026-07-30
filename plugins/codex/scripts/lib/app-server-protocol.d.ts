@@ -6,12 +6,14 @@ import type {
   ServerNotification
 } from "../../.generated/app-server-types/index.js";
 import type {
-  ExternalAgentConfigImportParams,
-  ExternalAgentConfigImportResponse,
   ConfigReadParams,
   ConfigReadResponse,
+  ExternalAgentConfigImportParams,
+  ExternalAgentConfigImportResponse,
   GetAccountParams,
   GetAccountResponse,
+  ThreadResumeParams as RawThreadResumeParams,
+  ThreadStartParams as RawThreadStartParams,
   ReviewStartParams,
   ReviewStartResponse,
   ReviewTarget,
@@ -21,11 +23,9 @@ import type {
   ThreadItem,
   ThreadListParams,
   ThreadListResponse,
-  ThreadResumeParams as RawThreadResumeParams,
   ThreadResumeResponse,
   ThreadSetNameParams,
   ThreadSetNameResponse,
-  ThreadStartParams as RawThreadStartParams,
   ThreadStartResponse,
   Turn,
   TurnInterruptParams,

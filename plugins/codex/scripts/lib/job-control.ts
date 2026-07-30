@@ -1,7 +1,6 @@
-import { fs } from "./platform.ts";
-
 import { getSessionRuntimeStatus } from "./codex.ts";
 import type { EnvironmentOptions, JobRecord } from "./domain.ts";
+import { fs } from "./platform.ts";
 import { getConfig, listJobs, readJobFile, resolveJobFile } from "./state.ts";
 import { SESSION_ID_ENV } from "./tracked-jobs.ts";
 import { resolveWorkspaceRoot } from "./workspace.ts";

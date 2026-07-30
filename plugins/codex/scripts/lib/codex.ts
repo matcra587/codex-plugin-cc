@@ -1,10 +1,4 @@
-import { fs, os, path } from "./platform.ts";
-
-import { readJsonFile } from "./fs.ts";
 import { BROKER_BUSY_RPC_CODE, BROKER_ENDPOINT_ENV, CodexAppServerClient } from "./app-server.ts";
-import { loadBrokerSession } from "./broker-lifecycle.ts";
-import { binaryAvailable } from "./process.ts";
-import { isRecord } from "./validation.ts";
 import type {
   AppServerNotification,
   AppServerRequestParams,
@@ -17,6 +11,11 @@ import type {
   TurnStartParams,
   UserInput
 } from "./app-server-protocol";
+import { loadBrokerSession } from "./broker-lifecycle.ts";
+import { readJsonFile } from "./fs.ts";
+import { fs, os, path } from "./platform.ts";
+import { binaryAvailable } from "./process.ts";
+import { isRecord } from "./validation.ts";
 
 type AppServerClient = Awaited<ReturnType<typeof CodexAppServerClient.connect>>;
 type FileChangeItem = Extract<ThreadItem, { type: "fileChange" }>;

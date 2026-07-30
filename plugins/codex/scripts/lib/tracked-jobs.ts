@@ -1,5 +1,3 @@
-import { fs } from "./platform.ts";
-
 import type {
   EnvironmentOptions,
   JobExecution,
@@ -10,6 +8,7 @@ import type {
   ProgressReporter,
   TrackedJob
 } from "./domain.ts";
+import { fs } from "./platform.ts";
 import { readJobFile, resolveJobFile, resolveJobLogFile, upsertJob, writeJobFile } from "./state.ts";
 
 export const SESSION_ID_ENV = "CODEX_COMPANION_SESSION_ID";

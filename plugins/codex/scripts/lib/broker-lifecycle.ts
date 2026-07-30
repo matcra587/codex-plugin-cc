@@ -1,5 +1,5 @@
-import { fs, os, path } from "./platform.ts";
 import { createBrokerEndpoint, parseBrokerEndpoint } from "./broker-endpoint.ts";
+import { fs, os, path } from "./platform.ts";
 import { ensureStateDir, resolveStateDir } from "./state.ts";
 import { isRecord } from "./validation.ts";
 

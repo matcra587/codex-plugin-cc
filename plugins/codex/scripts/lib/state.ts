@@ -1,6 +1,5 @@
+import { type CompanionConfig, type CompanionState, isJobRecord, type JobPatch, type JobRecord } from "./domain.ts";
 import { fs, os, path } from "./platform.ts";
-
-import { isJobRecord, type CompanionConfig, type CompanionState, type JobPatch, type JobRecord } from "./domain.ts";
 import { isProcessAlive } from "./process.ts";
 import { isRecord } from "./validation.ts";
 import { resolveWorkspaceRoot } from "./workspace.ts";

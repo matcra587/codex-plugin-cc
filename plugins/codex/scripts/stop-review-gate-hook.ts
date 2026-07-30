@@ -1,15 +1,14 @@
 #!/usr/bin/env bun
 
-import { fs, path } from "./lib/platform.ts";
-
 import { getCodexAvailability } from "./lib/codex.ts";
-import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.ts";
-import { getConfig, listJobs } from "./lib/state.ts";
+import type { JobRecord } from "./lib/domain.ts";
 import { sortJobsNewestFirst } from "./lib/job-control.ts";
+import { fs, path } from "./lib/platform.ts";
+import { interpolateTemplate, loadPromptTemplate } from "./lib/prompts.ts";
+import { getConfig, listJobs } from "./lib/state.ts";
 import { SESSION_ID_ENV } from "./lib/tracked-jobs.ts";
 import { isRecord } from "./lib/validation.ts";
 import { resolveWorkspaceRoot } from "./lib/workspace.ts";
-import type { JobRecord } from "./lib/domain.ts";
 
 const STOP_REVIEW_TIMEOUT_MS = 15 * 60 * 1000;
 const SCRIPT_DIR = path.dirname(Bun.fileURLToPath(import.meta.url));

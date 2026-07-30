@@ -1,8 +1,7 @@
-import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { test } from "bun:test";
-import { assert } from "./assertions.ts";
-
 import { collectReviewContext, resolveReviewTarget } from "../plugins/codex/scripts/lib/git.ts";
+import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";
+import { assert } from "./assertions.ts";
 import { initGitRepo, makeTempDir, run } from "./helpers.ts";
 
 test("resolveReviewTarget prefers working tree when repo is dirty", () => {

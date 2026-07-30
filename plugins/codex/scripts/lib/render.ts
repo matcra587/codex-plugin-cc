@@ -154,9 +154,7 @@ function isStructuredReviewStoredResult(storedJob: Partial<JobRecord> | null | u
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return false;
   }
-  return (
-    Object.prototype.hasOwnProperty.call(result, "result") || Object.prototype.hasOwnProperty.call(result, "parseError")
-  );
+  return Object.hasOwn(result, "result") || Object.hasOwn(result, "parseError");
 }
 
 function formatJobLine(job: JobRecord): string {

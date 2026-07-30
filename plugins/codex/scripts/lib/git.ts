@@ -1,8 +1,7 @@
-import { fs, path } from "./platform.ts";
-
 import { isProbablyText } from "./fs.ts";
-import { formatCommandFailure, runCommand, runCommandChecked } from "./process.ts";
+import { fs, path } from "./platform.ts";
 import type { CommandOptions } from "./process.ts";
+import { formatCommandFailure, runCommand, runCommandChecked } from "./process.ts";
 
 const MAX_UNTRACKED_BYTES = 24 * 1024;
 const DEFAULT_INLINE_DIFF_MAX_FILES = 2;

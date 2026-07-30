@@ -1,8 +1,3 @@
-import { fs } from "./platform.ts";
-
-import { parseBrokerEndpoint } from "./broker-endpoint.ts";
-import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.ts";
-import { isJsonRpcMessage, type JsonRpcMessage } from "./json-rpc.ts";
 import type {
   AppServerMethod,
   AppServerNotification,
@@ -13,6 +8,11 @@ import type {
   CodexAppServerClientOptions,
   InitializeCapabilities
 } from "./app-server-protocol";
+
+import { parseBrokerEndpoint } from "./broker-endpoint.ts";
+import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.ts";
+import { isJsonRpcMessage, type JsonRpcMessage } from "./json-rpc.ts";
+import { fs } from "./platform.ts";
 
 class ProtocolError extends Error {
   data?: unknown;

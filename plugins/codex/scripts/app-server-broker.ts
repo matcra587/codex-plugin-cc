@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
 
-import { fs, path } from "./lib/platform.ts";
-
-import { parseArgs } from "./lib/args.ts";
 import { BROKER_BUSY_RPC_CODE, CodexAppServerClient } from "./lib/app-server.ts";
+import type { AppServerMethod, AppServerNotification, AppServerRequestParams } from "./lib/app-server-protocol";
+import { parseArgs } from "./lib/args.ts";
 import { parseBrokerEndpoint } from "./lib/broker-endpoint.ts";
 import { isJsonRpcMessage, type JsonRpcMessage } from "./lib/json-rpc.ts";
+import { fs, path } from "./lib/platform.ts";
 import { isRecord } from "./lib/validation.ts";
-import type { AppServerMethod, AppServerNotification, AppServerRequestParams } from "./lib/app-server-protocol";
 
 type AppServerClient = Awaited<ReturnType<typeof CodexAppServerClient.connect>>;
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
-import { fs, path } from "./lib/platform.ts";
-
-import { parseArgs, splitRawArgumentString } from "./lib/args.ts";
+import type { ReviewTarget } from "./lib/app-server-protocol";
 import type { AnyParsedOptions, ParseArgsConfig } from "./lib/args.ts";
+import { parseArgs, splitRawArgumentString } from "./lib/args.ts";
+import { resolveClaudeSessionPath } from "./lib/claude-session-transfer.ts";
 import {
   buildPersistentTaskThreadName,
   DEFAULT_CONTINUE_PROMPT,
@@ -18,13 +18,20 @@ import {
   runAppServerReview,
   runAppServerTurn
 } from "./lib/codex.ts";
-import { resolveClaudeSessionPath } from "./lib/claude-session-transfer.ts";
+import {
+  type JobClass,
+  type JobExecution,
+  type JobKind,
+  type JobRecord,
+  type ProgressReporter,
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+  type TaskRequest,
+  type TrackedJob
+} from "./lib/domain.ts";
 import { readStdinIfPiped } from "./lib/fs.ts";
-import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "./lib/git.ts";
 import type { ResolvedReviewTarget } from "./lib/git.ts";
-import { binaryAvailable, terminateProcessTree } from "./lib/process.ts";
-import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.ts";
-import { generateJobId, getConfig, listJobs, setConfig, upsertJob, writeJobFile } from "./lib/state.ts";
+import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "./lib/git.ts";
 import {
   buildSingleJobSnapshot,
   buildStatusSnapshot,
@@ -33,6 +40,20 @@ import {
   resolveResultJob,
   sortJobsNewestFirst
 } from "./lib/job-control.ts";
+import { fs, path } from "./lib/platform.ts";
+import { binaryAvailable, terminateProcessTree } from "./lib/process.ts";
+import { interpolateTemplate, loadPromptTemplate } from "./lib/prompts.ts";
+import {
+  renderCancelReport,
+  renderJobStatusReport,
+  renderNativeReviewResult,
+  renderReviewResult,
+  renderSetupReport,
+  renderStatusReport,
+  renderStoredJobResult,
+  renderTaskResult
+} from "./lib/render.ts";
+import { generateJobId, getConfig, listJobs, setConfig, upsertJob, writeJobFile } from "./lib/state.ts";
 import {
   appendLogLine,
   createJobLogFile,
@@ -44,28 +65,6 @@ import {
   SESSION_ID_ENV
 } from "./lib/tracked-jobs.ts";
 import { resolveWorkspaceRoot } from "./lib/workspace.ts";
-import {
-  renderNativeReviewResult,
-  renderReviewResult,
-  renderStoredJobResult,
-  renderCancelReport,
-  renderJobStatusReport,
-  renderSetupReport,
-  renderStatusReport,
-  renderTaskResult
-} from "./lib/render.ts";
-import type { ReviewTarget } from "./lib/app-server-protocol";
-import {
-  REASONING_EFFORTS,
-  type JobClass,
-  type JobExecution,
-  type JobKind,
-  type JobRecord,
-  type ProgressReporter,
-  type ReasoningEffort,
-  type TaskRequest,
-  type TrackedJob
-} from "./lib/domain.ts";
 
 const ROOT_DIR = path.resolve(Bun.fileURLToPath(new URL("..", import.meta.url)));
 const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");

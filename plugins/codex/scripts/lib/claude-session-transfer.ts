@@ -1,6 +1,5 @@
-import { fs, os, path } from "./platform.ts";
-
 import { ensureAbsolutePath } from "./fs.ts";
+import { fs, os, path } from "./platform.ts";
 
 export const TRANSCRIPT_PATH_ENV = "CODEX_COMPANION_TRANSCRIPT_PATH";
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");

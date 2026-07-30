@@ -7,7 +7,7 @@ export function loadPromptTemplate(rootDir: string, name: string): string {
 
 export function interpolateTemplate(template: string, variables: Readonly<Record<string, string>>): string {
   return template.replace(/\{\{([A-Z_]+)\}\}/g, (_match: string, key: string) => {
-    if (!Object.prototype.hasOwnProperty.call(variables, key)) {
+    if (!Object.hasOwn(variables, key)) {
       return "";
     }
 

@@ -1,9 +1,6 @@
-import { fs, os, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { test } from "bun:test";
-import { assert } from "./assertions.ts";
-
 import type { JobRecord } from "../plugins/codex/scripts/lib/domain.ts";
-import { makeTempDir } from "./helpers.ts";
+import { fs, os, path } from "../plugins/codex/scripts/lib/platform.ts";
 import {
   ensureStateDir,
   listJobs,
@@ -14,6 +11,8 @@ import {
   resolveStateFile,
   saveState
 } from "../plugins/codex/scripts/lib/state.ts";
+import { assert } from "./assertions.ts";
+import { makeTempDir } from "./helpers.ts";
 
 const ROOT = path.resolve(path.dirname(Bun.fileURLToPath(import.meta.url)), "..");
 const STATE_WRITER_FIXTURE = path.join(ROOT, "tests", "state-writer-fixture.ts");

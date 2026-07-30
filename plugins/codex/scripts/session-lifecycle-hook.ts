@@ -1,8 +1,5 @@
 #!/usr/bin/env bun
 
-import { fs } from "./lib/platform.ts";
-
-import { terminateProcessTree } from "./lib/process.ts";
 import { BROKER_ENDPOINT_ENV } from "./lib/app-server.ts";
 import {
   clearBrokerSession,
@@ -12,10 +9,12 @@ import {
   sendBrokerShutdown,
   teardownBrokerSession
 } from "./lib/broker-lifecycle.ts";
-import { resolveStateFile, updateState } from "./lib/state.ts";
 import { TRANSCRIPT_PATH_ENV } from "./lib/claude-session-transfer.ts";
-import { resolveWorkspaceRoot } from "./lib/workspace.ts";
+import { fs } from "./lib/platform.ts";
+import { terminateProcessTree } from "./lib/process.ts";
+import { resolveStateFile, updateState } from "./lib/state.ts";
 import { isRecord } from "./lib/validation.ts";
+import { resolveWorkspaceRoot } from "./lib/workspace.ts";
 
 export const SESSION_ID_ENV = "CODEX_COMPANION_SESSION_ID";
 const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
@@ -50,7 +49,7 @@ function readHookInput(): SessionHookInput {
 }
 
 function shellEscape(value: unknown): string {
-  return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
 function appendEnvVar(name: string, value: unknown): void {

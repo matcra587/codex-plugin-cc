@@ -1,7 +1,6 @@
 import { test } from "bun:test";
-import { assert } from "./assertions.ts";
-
 import { renderReviewResult, renderStoredJobResult } from "../plugins/codex/scripts/lib/render.ts";
+import { assert } from "./assertions.ts";
 
 test("renderReviewResult degrades gracefully when JSON is missing required review fields", () => {
   const output = renderReviewResult(
