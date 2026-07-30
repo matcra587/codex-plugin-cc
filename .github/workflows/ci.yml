@@ -1,6 +1,8 @@
-name: Pull Request CI
+name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -24,6 +26,9 @@ jobs:
 
       - name: Install Codex CLI
         run: bun add --global @openai/codex@0.145.0
+
+      - name: Check manifest versions agree
+        run: bun run check-version
 
       - name: Run test suite
         run: bun test
