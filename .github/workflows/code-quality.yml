@@ -16,14 +16,18 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.1
+        # clover: provider=auto constraint=minor tags=checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
       - name: Set up Biome
-        uses: biomejs/setup-biome@a05c02a1304287da45f13648675a70d5841acdbc # v2.7.0
+        # clover: provider=auto constraint=minor tags=setup-biome
+        uses: biomejs/setup-biome@4c91541eaada48f67d7dbd7833600ce162b68f51 # v2.7.1
         with:
-          # Keep in step with the @biomejs/biome devDependency in package.json.
+          # cooldown matches bunfig.toml's minimumReleaseAge, so Clover cannot
+          # propose a release that `bun install` will then refuse to resolve.
+          # clover: provider=github id=biome repository=biomejs/biome source=releases tag-prefix=@biomejs/biome@ cooldown=72h constraint=minor tags=biome
           version: 2.5.5
 
       - name: Run Biome

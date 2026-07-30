@@ -1,0 +1,48 @@
+# Clover directives for package.json, which is strict JSON and cannot host
+# comments. Clover rewrites package.json in place; this sidecar is never
+# written to.
+#
+# The Biome pin follows the `biome` producer declared in
+# .github/workflows/code-quality.yml, so the CI action and the devDependency
+# cannot drift apart.
+#
+# Every directive here uses source=releases with a 72h cooldown matching
+# bunfig.toml's minimumReleaseAge, so Clover cannot propose a release that
+# `bun install` will then refuse to resolve. cooldown needs a publication
+# date, which release objects carry and bare tags do not.
+
+- provider: github
+  id: bun
+  repository: oven-sh/bun
+  source: releases
+  tag-prefix: bun-v
+  cooldown: 72h
+  constraint: minor
+  jq: .packageManager
+  tags:
+    - bun
+
+- from: bun
+  jq: .engines.bun
+  tags:
+    - bun
+
+- from: bun
+  jq: .devDependencies["@types/bun"]
+  tags:
+    - bun
+
+- from: biome
+  jq: .devDependencies["@biomejs/biome"]
+  tags:
+    - biome
+
+- provider: github
+  repository: microsoft/typescript-go
+  source: releases
+  tag-prefix: typescript/v
+  cooldown: 72h
+  constraint: minor
+  jq: .devDependencies.typescript
+  tags:
+    - typescript

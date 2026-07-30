@@ -1,4 +1,5 @@
 {
+  // clover: from=biome tags=biome
   "$schema": "https://biomejs.dev/schemas/2.5.5/schema.json",
   "vcs": {
     "enabled": true,
