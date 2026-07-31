@@ -2,6 +2,7 @@
 // See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
 
 import { test } from "bun:test";
+import { chmodSync } from "node:fs";
 import { collectReviewContext, resolveReviewTarget } from "../plugins/codex/scripts/lib/git.ts";
 import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { assert } from "./assertions.ts";
@@ -219,7 +220,34 @@ test("collectReviewContext keeps untracked file content in lightweight working t
 // Upstream skipped an oversized untracked file on its stat, never reading it.
 // The port checked the buffer length instead, so a large build artifact or dump
 // in the working tree was pulled entirely into memory only to be discarded.
+//
+// Making the file unreadable is what makes this discriminating: both orderings
+// emit the same message for a merely-large file, but only the size-first
+// ordering can report a size for a file it is not allowed to open. Reading
+// first fails and reports it as unreadable instead.
 test("an oversized untracked file is skipped without being read", () => {
+  const cwd = makeTempDir();
+  initGitRepo(cwd);
+  fs.writeFileSync(path.join(cwd, "app.js"), "console.log('v1');\n");
+  run("git", ["add", "app.js"], { cwd });
+  run("git", ["commit", "-m", "init"], { cwd });
+
+  const big = path.join(cwd, "dump.sql");
+  fs.writeFileSync(big, "y".repeat(32 * 1024), "utf8");
+  const size = fs.statSync(big).size;
+  assert.equal(size > 24576, true, "fixture should exceed the untracked limit");
+  // The platform fs shim does not expose chmod, so use node:fs here.
+  chmodSync(big, 0o000);
+
+  const target = resolveReviewTarget(cwd, { scope: "working-tree" });
+  const context = collectReviewContext(cwd, target);
+
+  assert.match(context.content, new RegExp(`${size} bytes exceeds 24576 byte limit`));
+  assert.doesNotMatch(context.content, /unreadable file/);
+  assert.doesNotMatch(context.content, /yyyyyyyy/);
+});
+
+test("an oversized untracked file reports its size rather than its contents", () => {
   const cwd = makeTempDir();
   initGitRepo(cwd);
   fs.writeFileSync(path.join(cwd, "app.js"), "console.log('v1');\n");

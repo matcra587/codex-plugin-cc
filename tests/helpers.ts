@@ -63,7 +63,10 @@ export function detectOrphanReaperPid(): number {
   const spawned = run("sh", ["-c", "sleep 5 & echo $!"]);
   const orphanPid = Number(spawned.stdout.trim());
   if (!Number.isInteger(orphanPid) || orphanPid <= 0) {
-    throw new Error(`Unable to spawn an orphan to probe the reaper: ${spawned.stderr}`);
+    // run() swallows a spawn failure into `error` and returns empty streams, so
+    // stderr alone would leave nothing after the colon.
+    const detail = spawned.stderr.trim() || String(spawned.error ?? "no output");
+    throw new Error(`Unable to spawn an orphan to probe the reaper: ${detail}`);
   }
   try {
     // The shell has already been waited on, so the kernel reparented the sleep

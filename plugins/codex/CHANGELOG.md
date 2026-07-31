@@ -13,11 +13,14 @@
   whatever the kernel will not take, so any size of message could be written and
   relied on to arrive. Bun's socket returns the byte count it accepted and drops
   the rest, and that return value was ignored, so a payload large enough to fill
-  the send buffer reached the client as a truncated JSONL line. The client
-  rejected it as unparsable and tore the connection down, failing the whole turn
-  with `Failed to parse codex app-server JSONL` rather than the real cause. Long
-  reasoning-heavy turns were the ones that hit it. The unwritten tail is now
-  held per socket and flushed on drain.
+  the send buffer lost its tail — including the newline that terminates the
+  line. The client saw an unterminated prefix and simply waited; once the next
+  message's bytes ran onto that prefix it failed to parse, and the client tore
+  the connection down, failing the whole turn with `Failed to parse codex
+  app-server JSONL` rather than the real cause. Long reasoning-heavy turns were
+  the ones that hit it. The unwritten tail is now queued per socket and
+  re-offered on drain, and offered once more before a shutdown closes the
+  socket.
 - The broker no longer forwards `"code": null` for an app-server error carrying
   no rpcCode. `rpcCode?: number` is a class field, so the property exists on
   every `ProtocolError` and an `in` check is always true; `Number(undefined)` is
@@ -37,6 +40,11 @@
   an empty stderr and discarded what was on stdout.
 - `--prompt-file=` falls through to the positionals and stdin again instead of
   resolving `""` to the working directory and failing on reading a directory.
+
+- `jest` and `vitest` register as verification commands again, so projects using
+  them get the `verifying` phase in `/codex:status` instead of `investigating`.
+  Upstream matched both; the port dropped them, and neither is matched by the
+  bare `test` alternative because the word boundary falls in the wrong place.
 
 ### Changed
 

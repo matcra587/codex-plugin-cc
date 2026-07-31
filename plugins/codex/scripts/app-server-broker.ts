@@ -6,15 +6,18 @@ import { parseArgs } from "./lib/args.ts";
 import { parseBrokerEndpoint } from "./lib/broker-endpoint.ts";
 import { isJsonRpcMessage, type JsonRpcMessage } from "./lib/json-rpc.ts";
 import { fs, path } from "./lib/platform.ts";
+import { SocketWriter } from "./lib/socket-writer.ts";
 import { isRecord } from "./lib/validation.ts";
 
 type AppServerClient = Awaited<ReturnType<typeof CodexAppServerClient.connect>>;
+
+const encoder = new TextEncoder();
 
 interface BrokerSocketData {
   buffer: string;
   decoder: TextDecoder;
   queue: Promise<void>;
-  pendingWrite: Uint8Array | null;
+  writer: SocketWriter;
 }
 
 interface ActiveStreamTurn {
@@ -123,38 +126,9 @@ function buildJsonRpcError(code: number, message: string, data?: unknown) {
   return data === undefined ? { code, message } : { code, message, data };
 }
 
-// Node's net.Socket buffers whatever the kernel will not take. Bun's socket
-// does not: write() reports how many bytes it accepted and drops the rest, so a
-// reasoning payload large enough to fill the send buffer used to be delivered
-// as a truncated JSONL line, which the peer rejected as unparsable and tore the
-// connection down mid-turn. Hold the remainder and flush it on drain.
-function flushPendingWrite(socket: Bun.Socket<BrokerSocketData>): void {
-  const pending = socket.data.pendingWrite;
-  if (!pending) {
-    return;
-  }
-  socket.data.pendingWrite = null;
-  writeFramed(socket, pending);
-}
-
-function writeFramed(socket: Bun.Socket<BrokerSocketData>, payload: Uint8Array): void {
-  const queued = socket.data.pendingWrite;
-  if (queued) {
-    const combined = new Uint8Array(queued.length + payload.length);
-    combined.set(queued);
-    combined.set(payload, queued.length);
-    socket.data.pendingWrite = combined;
-    return;
-  }
-  const written = socket.write(payload);
-  if (written < payload.length) {
-    socket.data.pendingWrite = payload.subarray(Math.max(written, 0));
-  }
-}
-
 function send(socket: Bun.Socket<BrokerSocketData>, message: unknown): void {
   try {
-    writeFramed(socket, new TextEncoder().encode(`${JSON.stringify(message)}\n`));
+    socket.data.writer.write(socket, encoder.encode(`${JSON.stringify(message)}\n`));
   } catch {
     // The peer may have closed between routing and delivery.
   }
@@ -309,6 +283,16 @@ async function main(): Promise<void> {
       removeQuietly(listenTarget.path);
     }
     for (const socket of sockets) {
+      // end() flushes the kernel's buffer, not ours, so anything still queued
+      // behind backpressure — including a shutdown ack sent moments ago — would
+      // vanish. Offer it once more first. A peer that is still not reading gets
+      // a closed socket rather than a truncated line, which is what it would
+      // have had anyway.
+      try {
+        socket.data.writer.flush(socket);
+      } catch {
+        // The peer is already gone; nothing left to deliver.
+      }
       socket.end();
     }
     await appClient.close().catch(() => {});
@@ -454,13 +438,18 @@ async function main(): Promise<void> {
           buffer: "",
           decoder: new TextDecoder(),
           queue: Promise.resolve(),
-          pendingWrite: null
+          writer: new SocketWriter()
         };
         sockets.add(socket);
         markBrokerActivity();
       },
       drain(socket) {
-        flushPendingWrite(socket);
+        try {
+          socket.data.writer.flush(socket);
+        } catch {
+          // Same as send(): the peer may have gone away mid-flush. The unwritten
+          // tail stays queued, and the close handler discards it with the socket.
+        }
       },
       data(socket, chunk) {
         markBrokerActivity();

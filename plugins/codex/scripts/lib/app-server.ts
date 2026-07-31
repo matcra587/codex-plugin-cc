@@ -13,6 +13,9 @@ import { parseBrokerEndpoint } from "./broker-endpoint.ts";
 import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.ts";
 import { isJsonRpcMessage, type JsonRpcMessage } from "./json-rpc.ts";
 import { fs } from "./platform.ts";
+import { SocketWriter } from "./socket-writer.ts";
+
+const encoder = new TextEncoder();
 
 class ProtocolError extends Error {
   // Declared, not defined: a class field with no initializer still creates the
@@ -316,7 +319,7 @@ class SpawnedCodexAppServerClient extends AppServerClientBase {
 class BrokerCodexAppServerClient extends AppServerClientBase {
   readonly endpoint: string;
   socket: Bun.Socket<AppServerClientBase> | null = null;
-  pendingWrite: Uint8Array | null = null;
+  readonly writer = new SocketWriter();
 
   constructor(cwd: string, options: CodexAppServerClientOptions & { brokerEndpoint: string }) {
     super(cwd, options);
@@ -379,38 +382,24 @@ class BrokerCodexAppServerClient extends AppServerClientBase {
   }
 
   // Bun's socket write() accepts what the send buffer has room for and drops
-  // the rest, unlike Node's net.Socket, which buffers. A dropped tail arrives
-  // as a truncated JSONL line and kills the connection, so hold the remainder
-  // and flush it on drain.
+  // the rest, unlike Node's net.Socket, which buffers. See SocketWriter.
   flushPendingWrite(): void {
-    const pending = this.pendingWrite;
-    if (!pending) {
+    if (!this.socket) {
       return;
     }
-    this.pendingWrite = null;
-    this.writeFramed(pending);
-  }
-
-  writeFramed(payload: Uint8Array): void {
-    const socket = this.socket;
-    if (!socket) {
-      throw new Error("codex app-server broker connection is not connected.");
-    }
-    if (this.pendingWrite) {
-      const combined = new Uint8Array(this.pendingWrite.length + payload.length);
-      combined.set(this.pendingWrite);
-      combined.set(payload, this.pendingWrite.length);
-      this.pendingWrite = combined;
-      return;
-    }
-    const written = socket.write(payload);
-    if (written < payload.length) {
-      this.pendingWrite = payload.subarray(Math.max(written, 0));
+    try {
+      this.writer.flush(this.socket);
+    } catch {
+      // The broker may have gone away mid-flush; handleExit reports it.
     }
   }
 
   override sendMessage(message: unknown) {
-    this.writeFramed(new TextEncoder().encode(`${JSON.stringify(message)}\n`));
+    const socket = this.socket;
+    if (!socket) {
+      throw new Error("codex app-server broker connection is not connected.");
+    }
+    this.writer.write(socket, encoder.encode(`${JSON.stringify(message)}\n`));
   }
 }
 
