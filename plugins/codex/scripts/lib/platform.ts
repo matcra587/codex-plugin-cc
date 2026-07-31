@@ -13,6 +13,11 @@ if (!isDarwin && process.platform !== "linux") {
 const OPEN_CREATE = isDarwin ? 0x200 : 0x40;
 const OPEN_TRUNCATE = isDarwin ? 0x400 : 0x200;
 const OPEN_APPEND = isDarwin ? 0x8 : 0x400;
+// Private by default: this plugin writes state, job records and logs, none of
+// which any other user needs to read.
+const DEFAULT_FILE_MODE = 0o600;
+// Linux's PATH_MAX is 4096, macOS's is 1024; the larger is safe for both.
+const PATH_MAX = 4096;
 const LOCK_EXCLUSIVE_NON_BLOCKING = 2 | 4;
 const LOCK_UN = 8;
 const libc = dlopen(isDarwin ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
@@ -52,11 +57,27 @@ function callPath<Args extends unknown[], Result>(
   return symbol(ptr(bytes), ...args);
 }
 
-function openFile(file: PathLike, flags: number): number {
+// open(2) is variadic — `int open(const char *, int, ...)` — and its mode is a
+// variadic argument. bun:ffi can only declare fixed arguments, which happens to
+// work on x86-64 because the first arguments go in registers either way. Apple
+// silicon passes variadic arguments on the stack instead, so open reads its
+// mode from uninitialised stack rather than from the register the declaration
+// filled. The result is an arbitrary mode, frequently 000, which locks the
+// owner out of files this plugin has just written.
+//
+// The mode is therefore set explicitly after the fact, on files this call
+// actually created. Files that already existed keep the mode they had.
+function openFile(file: PathLike, flags: number, mode = DEFAULT_FILE_MODE): number {
   const filePath = resolve(asPath(file));
-  const descriptor = callPath(libc.symbols.open, filePath, flags, 0o666);
+  const creating = (flags & OPEN_CREATE) !== 0;
+  const existedBefore = creating ? existsSync(filePath) : true;
+  const descriptor = callPath(libc.symbols.open, filePath, flags, mode);
   if (descriptor < 0) {
     throw new Error(`Unable to open ${asPath(file)}`);
+  }
+  if (creating && !existedBefore && callPath(libc.symbols.chmod, filePath, mode) !== 0) {
+    libc.symbols.close(descriptor);
+    throw new Error(`Unable to change mode for ${asPath(file)}`);
   }
   return descriptor;
 }
@@ -223,10 +244,9 @@ function writeFileSync(file: PathLike, data: FileData, options: WriteFileOptions
 
 function acquireFileLockSync(file: PathLike, mode = 0o600): (() => void) | null {
   const filePath = resolve(asPath(file));
-  const descriptor = callPath(libc.symbols.open, filePath, 1 | OPEN_CREATE, mode);
-  if (descriptor < 0) {
-    throw new Error(`Unable to open lock file ${asPath(file)}`);
-  }
+  const descriptor = openFile(filePath, 1 | OPEN_CREATE, mode);
+  // Re-assert on an existing lock file: a lock left world readable by an older
+  // version should not stay that way.
   if (callPath(libc.symbols.chmod, filePath, mode) !== 0) {
     libc.symbols.close(descriptor);
     throw new Error(`Unable to change mode for ${asPath(file)}`);
@@ -270,12 +290,23 @@ function mkdirSync(directory: PathLike, options: { recursive?: boolean; mode?: n
     : [directoryPath];
 
   for (const target of targets) {
-    const requestedMode = target === directoryPath ? (options.mode ?? 0o777) : 0o777;
-    if (callPath(libc.symbols.mkdir, target, requestedMode) !== 0 && !isDirectory(target)) {
+    // Node applies the requested mode to every directory it creates, not just
+    // the leaf. Creating the parents 0o777 left the state root world-readable,
+    // and group or world writable under a lax umask, while the leaf asking for
+    // 0o700 looked private. That root holds broker.json.
+    const created = callPath(libc.symbols.mkdir, target, options.mode ?? 0o777) === 0;
+    if (!created && !isDirectory(target)) {
       throw new Error(`Unable to create directory ${target}`);
+    }
+    // mkdir's mode is masked by the umask, so set it explicitly. Only on
+    // directories this call created: pre-existing ones belong to the user.
+    if (created && options.mode !== undefined && callPath(libc.symbols.chmod, target, options.mode) !== 0) {
+      throw new Error(`Unable to change mode for ${target}`);
     }
   }
 
+  // The leaf is re-asserted even when it already existed, so a state directory
+  // left with the wrong mode by an older version repairs itself.
   if (options.mode !== undefined && callPath(libc.symbols.chmod, directoryPath, options.mode) !== 0) {
     throw new Error(`Unable to change mode for ${directoryPath}`);
   }
@@ -290,16 +321,20 @@ function mkdtempSync(prefix: PathLike): string {
   return new CString(result).toString();
 }
 
+// realpath(path, NULL) allocates the result, but that behaviour belongs to
+// macOS's realpath$DARWIN_EXTSN, which the system headers alias in at compile
+// time. dlopen resolves the plain symbol instead, and the variant that answers
+// to that name has historically required a caller-supplied PATH_MAX buffer —
+// handing it NULL writes through a null pointer. Supplying the buffer is
+// correct for either variant and removes the question.
 function realpathSync(file: PathLike): string {
-  const result = callPath(libc.symbols.realpath, resolve(asPath(file)), null);
+  const buffer = new Uint8Array(PATH_MAX);
+  const result = callPath(libc.symbols.realpath, resolve(asPath(file)), ptr(buffer));
   if (!result) {
     throw new Error(`Unable to resolve ${asPath(file)}`);
   }
-  try {
-    return new CString(result).toString();
-  } finally {
-    libc.symbols.free(result);
-  }
+  // The buffer is ours, so there is nothing to free.
+  return new CString(ptr(buffer)).toString();
 }
 realpathSync.native = realpathSync;
 

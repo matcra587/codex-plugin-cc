@@ -336,3 +336,69 @@ test("listJobs leaves a running job alone while its worker process is alive", ()
   assert.equal(job?.status, "running");
   assert.equal(job?.pid, process.pid);
 });
+
+// ensureStateDir asks for 0700 on the whole tree, but the shim only applied the
+// mode to the leaf, so the state root holding broker.json was created 0777 and
+// masked only by the umask — world readable, and writable under a lax one.
+test("mkdirSync applies its mode to every directory it creates", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "codex-plugin-perm-"));
+  const leaf = path.join(base, "root", "workspace");
+  fs.mkdirSync(leaf, { recursive: true, mode: 0o700 });
+
+  for (const target of [path.join(base, "root"), leaf]) {
+    const mode = (await Bun.file(target).stat()).mode & 0o777;
+    assert.equal(mode, 0o700, `${target} should be private, got ${mode.toString(8)}`);
+  }
+});
+
+test("mkdirSync leaves directories it did not create alone", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "codex-plugin-perm-"));
+  const existing = path.join(base, "existing");
+  fs.mkdirSync(existing, { recursive: true, mode: 0o755 });
+  fs.mkdirSync(path.join(existing, "leaf"), { recursive: true, mode: 0o700 });
+
+  assert.equal((await Bun.file(existing).stat()).mode & 0o777, 0o755, "a pre-existing parent belongs to the user");
+  assert.equal((await Bun.file(path.join(existing, "leaf")).stat()).mode & 0o777, 0o700);
+});
+
+// open(2)'s mode is a variadic argument, which bun:ffi cannot pass on Apple
+// silicon: it lands on the stack rather than in a register, so the created file
+// got an arbitrary mode — frequently 000, locking the owner out of the plugin's
+// own logs and job records. The mode is now set explicitly after creation, so
+// it no longer depends on the platform's calling convention or the umask.
+test("a created file gets a deterministic private mode", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-plugin-mode-"));
+  const target = path.join(dir, "job.log");
+  fs.writeFileSync(target, "line\n", "utf8");
+
+  const mode = (await Bun.file(target).stat()).mode & 0o777;
+  assert.equal(mode, 0o600, `expected 0600, got ${mode.toString(8)}`);
+  // Readable back by its owner, which is what 000 broke.
+  assert.equal(fs.readFileSync(target, "utf8"), "line\n");
+});
+
+test("an explicit mode is honoured and a rewrite does not clobber it", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-plugin-mode-"));
+  const target = path.join(dir, "shared.json");
+  fs.writeFileSync(target, "{}", { encoding: "utf8", mode: 0o644 });
+  assert.equal((await Bun.file(target).stat()).mode & 0o777, 0o644);
+
+  fs.writeFileSync(target, '{"a":1}', "utf8");
+  assert.equal((await Bun.file(target).stat()).mode & 0o777, 0o644, "rewriting must not re-permission the file");
+});
+
+// The exact shape that broke reviews: a job log is created empty and then
+// appended to. With the created mode left to open(2)'s variadic argument it came
+// out 000 on Apple silicon, so the next append hit EACCES on a file this process
+// had just written.
+test("a file created empty can still be appended to and read back", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-plugin-log-"));
+  const logFile = path.join(dir, "job.log");
+
+  fs.writeFileSync(logFile, "", "utf8");
+  fs.appendFileSync(logFile, "first\n", "utf8");
+  fs.appendFileSync(logFile, "second\n", "utf8");
+
+  assert.equal((await Bun.file(logFile).stat()).mode & 0o777, 0o600);
+  assert.equal(fs.readFileSync(logFile, "utf8"), "first\nsecond\n");
+});
