@@ -2,6 +2,8 @@
 // See NOTICE for attribution and plugins/codex/CHANGELOG.md for changes.
 
 import { test } from "bun:test";
+import { enrichJob } from "../plugins/codex/scripts/lib/job-control.ts";
+import { fs, os, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { renderReviewResult, renderStatusReport, renderStoredJobResult } from "../plugins/codex/scripts/lib/render.ts";
 import { assert } from "./assertions.ts";
 
@@ -115,4 +117,23 @@ test("status table cells collapse a lone carriage return", () => {
     .split("\n")
     .find((line) => line.includes("task-cr"));
   assert.equal(typeof row === "string" && !/[\r\n]/.test(row), true, `row still splits: ${JSON.stringify(row)}`);
+});
+
+// Upstream matched jest and vitest as verification commands; the port dropped
+// them, so those projects lost the "verifying" phase in /codex:status.
+test("jest and vitest still register as verification commands", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-plugin-phase-"));
+  const cases = [
+    ["Running command: npx jest --ci", "verifying"],
+    ["Running command: vitest run", "verifying"],
+    ["Running command: npm test", "verifying"],
+    ["Running command: rg TODO", "investigating"]
+  ] as const;
+
+  for (const [index, [line, expected]] of cases.entries()) {
+    const logFile = path.join(dir, `job-${index}.log`);
+    fs.writeFileSync(logFile, `[2026-03-18T15:30:00.000Z] ${line}\n`, "utf8");
+    const enriched = enrichJob({ id: `job-${index}`, jobClass: "task", status: "running", logFile } as never);
+    assert.equal(enriched.phase, expected, `${line} should read as ${expected}`);
+  }
 });

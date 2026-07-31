@@ -148,7 +148,10 @@ function runStopReview(cwd: string, input: StopHookInput = {}): StopReviewResult
   }
 
   if (result.exitCode !== 0) {
-    const detail = String(result.stderr || result.stdout || "").trim();
+    // Bun.spawnSync returns Buffers, and an empty Buffer is truthy, so an
+    // `||` over the raw values selects an empty stderr and discards the detail
+    // on stdout. Node returned strings here, where "" fell through.
+    const detail = (result.stderr.toString() || result.stdout.toString() || "").trim();
     return {
       ok: false,
       reason: detail

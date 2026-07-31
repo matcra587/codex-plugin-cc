@@ -236,15 +236,19 @@ function formatUntrackedFile(cwd: string, relativePath: string): string {
   if (stat.isDirectory()) {
     return `### ${relativePath}\n(skipped: directory)`;
   }
+  // Size first, so an oversized untracked file is skipped without ever being
+  // read. Checking the buffer length instead pulled the whole file into memory
+  // only to discard it — a working tree holding a large build artifact or dump
+  // would balloon every review.
+  if (stat.size > MAX_UNTRACKED_BYTES) {
+    return `### ${relativePath}\n(skipped: ${stat.size} bytes exceeds ${MAX_UNTRACKED_BYTES} byte limit)`;
+  }
 
   let buffer: Uint8Array;
   try {
     buffer = fs.readFileSync(absolutePath);
   } catch {
     return `### ${relativePath}\n(skipped: broken symlink or unreadable file)`;
-  }
-  if (buffer.byteLength > MAX_UNTRACKED_BYTES) {
-    return `### ${relativePath}\n(skipped: ${buffer.byteLength} bytes exceeds ${MAX_UNTRACKED_BYTES} byte limit)`;
   }
   if (!isProbablyText(buffer)) {
     return `### ${relativePath}\n(skipped: binary file)`;

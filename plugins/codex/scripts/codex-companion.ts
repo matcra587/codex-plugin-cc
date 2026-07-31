@@ -776,7 +776,10 @@ async function executeTransfer(cwd: string, options: { source?: string | undefin
 
 function readTaskPrompt(cwd: string, options: AnyParsedOptions, positionals: string[]): string {
   const promptFile = options["prompt-file"];
-  if (typeof promptFile === "string") {
+  // Upstream guarded on truthiness, so `--prompt-file=` fell through to the
+  // positionals and stdin. A typeof check took the read path for "", which
+  // resolves to the cwd and fails on reading a directory.
+  if (typeof promptFile === "string" && promptFile !== "") {
     return fs.readFileSync(path.resolve(cwd, promptFile), "utf8");
   }
 

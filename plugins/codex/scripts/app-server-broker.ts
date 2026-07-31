@@ -107,6 +107,17 @@ function buildActiveStreamTurn(method: AppServerMethod, params: unknown, result:
   return threadId && turnId ? { threadId, turnId } : null;
 }
 
+// A declared-but-unset class field still exists on the instance, so an `in`
+// check is always true for ProtocolError and Number(undefined) is NaN, which
+// serialises as `"code": null`. The receiving client rejects that as an invalid
+// JSON-RPC message, treats the line as unparsable and tears the connection
+// down, failing every pending request with a misleading parse error. Upstream
+// used `?? -32000`, which this restores.
+function toRpcCode(error: unknown): number {
+  const code = error instanceof Error ? (error as { rpcCode?: unknown }).rpcCode : undefined;
+  return typeof code === "number" && Number.isFinite(code) ? code : -32000;
+}
+
 function buildJsonRpcError(code: number, message: string, data?: unknown) {
   return data === undefined ? { code, message } : { code, message, data };
 }
@@ -351,7 +362,7 @@ async function main(): Promise<void> {
           send(socket, { id: message.id, result });
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
-          const rpcCode = error instanceof Error && "rpcCode" in error ? Number(error.rpcCode) : -32000;
+          const rpcCode = toRpcCode(error);
           send(socket, {
             id: message.id,
             error: buildJsonRpcError(rpcCode, detail)
@@ -389,7 +400,7 @@ async function main(): Promise<void> {
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        const rpcCode = error instanceof Error && "rpcCode" in error ? Number(error.rpcCode) : -32000;
+        const rpcCode = toRpcCode(error);
         send(socket, {
           id: message.id,
           error: buildJsonRpcError(rpcCode, detail)

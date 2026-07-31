@@ -215,3 +215,31 @@ test("collectReviewContext keeps untracked file content in lightweight working t
   assert.match(context.content, /## Untracked Files/);
   assert.match(context.content, /UNTRACKED_RISK_MARKER/);
 });
+
+// Upstream skipped an oversized untracked file on its stat, never reading it.
+// The port checked the buffer length instead, so a large build artifact or dump
+// in the working tree was pulled entirely into memory only to be discarded.
+test("an oversized untracked file is skipped without being read", () => {
+  const cwd = makeTempDir();
+  initGitRepo(cwd);
+  fs.writeFileSync(path.join(cwd, "app.js"), "console.log('v1');\n");
+  run("git", ["add", "app.js"], { cwd });
+  run("git", ["commit", "-m", "init"], { cwd });
+
+  // Comfortably over the 24KB untracked limit, and large enough that reading it
+  // would show up against a small ceiling.
+  const big = path.join(cwd, "dump.sql");
+  fs.writeFileSync(big, "", "utf8");
+  for (let index = 0; index < 40; index += 1) {
+    fs.appendFileSync(big, "y".repeat(1024 * 1024), "utf8");
+  }
+  const size = fs.statSync(big).size;
+  assert.equal(size > 24576, true, "fixture should exceed the untracked limit");
+
+  const target = resolveReviewTarget(cwd, { scope: "working-tree" });
+  const context = collectReviewContext(cwd, target);
+
+  assert.match(context.content, new RegExp(`${size} bytes exceeds 24576 byte limit`));
+  // The contents must not have reached the review payload.
+  assert.doesNotMatch(context.content, /yyyyyyyy/);
+});

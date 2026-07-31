@@ -1,4 +1,7 @@
 import { CString, dlopen, FFIType, ptr } from "bun:ffi";
+// stat(2)'s struct layout differs between Linux and macOS, so it is the one
+// thing here worth not hand-rolling over FFI.
+import { statSync as nodeStatSync } from "node:fs";
 
 type PathLike = string | URL | number;
 type FileData = string | ArrayBuffer | Uint8Array;
@@ -343,21 +346,28 @@ function readdirSync(directory: PathLike): string[] {
 }
 
 function statSync(file: PathLike) {
-  if (!existsSync(file)) {
+  let stat: ReturnType<typeof nodeStatSync>;
+  try {
+    stat = nodeStatSync(asPath(file));
+  } catch {
     throw new Error(`Unable to stat ${asPath(file)}`);
   }
   return {
-    isDirectory: () => isDirectory(file)
+    isDirectory: () => stat.isDirectory(),
+    size: stat.size
   };
 }
 
+// opendir needs the read bit, but traversing a directory only needs execute, so
+// an opendir-based test reported a real directory as absent whenever its owner
+// lacked read. That made recursive mkdir fail on an ancestor it should have
+// walked straight through.
 function isDirectory(file: PathLike): boolean {
-  const directory = callPath(libc.symbols.opendir, resolve(asPath(file)));
-  if (!directory) {
+  try {
+    return nodeStatSync(asPath(file)).isDirectory();
+  } catch {
     return false;
   }
-  libc.symbols.closedir(directory);
-  return true;
 }
 
 function removeDirectory(directory: PathLike) {
