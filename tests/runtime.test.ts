@@ -12,7 +12,7 @@ import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { resolveStateDir } from "../plugins/codex/scripts/lib/state.ts";
 import { assert } from "./assertions.ts";
 import { buildEnv, installFakeCodex } from "./fake-codex-fixture.ts";
-import { initGitRepo, makeTempDir, run } from "./helpers.ts";
+import { detectOrphanReaperPid, initGitRepo, makeTempDir, run } from "./helpers.ts";
 
 const ROOT = path.resolve(path.dirname(Bun.fileURLToPath(import.meta.url)), "..");
 const PLUGIN_ROOT = path.join(ROOT, "plugins", "codex");
@@ -2035,9 +2035,12 @@ test("broker interrupts an ownerless turn when its worker disconnects", async ()
   }
   cleanupProcessGroups.add(runningJob.pid);
   cleanupProcessGroups.add(brokerSession.pid);
+  // The broker must outlive the command that started it, so it has to have been
+  // reparented onto whatever reaps orphans here rather than staying a child of
+  // the launcher.
   const brokerParent = run("ps", ["-o", "ppid=", "-p", String(brokerSession.pid)]);
   assert.equal(brokerParent.status, 0, brokerParent.stderr);
-  assert.equal(Number(brokerParent.stdout.trim()), 1);
+  assert.equal(Number(brokerParent.stdout.trim()), detectOrphanReaperPid());
 
   try {
     process.kill(-runningJob.pid, "SIGKILL");

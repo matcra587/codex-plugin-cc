@@ -50,6 +50,39 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
   }
 }
 
+// An orphan does not always reparent to PID 1. Any ancestor can claim
+// PR_SET_CHILD_SUBREAPER, and WSL2's /init does exactly that, so a detached
+// broker there lands on the Relay process rather than on init. Measure where
+// this system actually sends an orphan instead of assuming.
+let cachedReaperPid: number | null = null;
+export function detectOrphanReaperPid(): number {
+  if (cachedReaperPid !== null) {
+    return cachedReaperPid;
+  }
+  // The shell exits the moment it has backgrounded the sleep, orphaning it.
+  const spawned = run("sh", ["-c", "sleep 5 & echo $!"]);
+  const orphanPid = Number(spawned.stdout.trim());
+  if (!Number.isInteger(orphanPid) || orphanPid <= 0) {
+    throw new Error(`Unable to spawn an orphan to probe the reaper: ${spawned.stderr}`);
+  }
+  try {
+    // The shell has already been waited on, so the kernel reparented the sleep
+    // before spawnSync returned; one read is enough.
+    const parent = Number(run("ps", ["-o", "ppid=", "-p", String(orphanPid)]).stdout.trim());
+    if (!Number.isInteger(parent) || parent <= 0) {
+      throw new Error(`Unable to read the orphan's new parent (pid ${orphanPid}).`);
+    }
+    cachedReaperPid = parent;
+    return parent;
+  } finally {
+    try {
+      process.kill(orphanPid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
 export function initGitRepo(cwd: string): void {
   run("git", ["init", "-b", "main"], { cwd });
   run("git", ["config", "user.name", "Codex Plugin Tests"], { cwd });
