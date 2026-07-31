@@ -15,8 +15,11 @@ import { isJsonRpcMessage, type JsonRpcMessage } from "./json-rpc.ts";
 import { fs } from "./platform.ts";
 
 class ProtocolError extends Error {
-  data?: unknown;
-  rpcCode?: number;
+  // Declared, not defined: a class field with no initializer still creates the
+  // property with value `undefined`, which makes `"rpcCode" in error` true even
+  // when no code was set. `declare` keeps the type and leaves the object clean.
+  declare data?: unknown;
+  declare rpcCode?: number;
 
   constructor(message: string) {
     super(message);

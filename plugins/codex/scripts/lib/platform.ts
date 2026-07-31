@@ -1,7 +1,8 @@
+// Syscalls go through libc so the lock helpers can reach flock(2), which Bun
+// does not expose. Anything whose C struct layout varies by platform stays on
+// node:fs instead -- the offsets cannot be checked at compile time and are
+// silently wrong when they drift.
 import { CString, dlopen, FFIType, ptr } from "bun:ffi";
-// stat(2)'s struct layout differs between Linux and macOS, so it is the one
-// thing here worth not hand-rolling over FFI.
-import { statSync as nodeStatSync } from "node:fs";
 
 type PathLike = string | URL | number;
 type FileData = string | ArrayBuffer | Uint8Array;
@@ -27,13 +28,11 @@ const libc = dlopen(isDarwin ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
   access: { args: [FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
   chmod: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
   close: { args: [FFIType.i32], returns: FFIType.i32 },
-  closedir: { args: [FFIType.ptr], returns: FFIType.i32 },
   flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
   free: { args: [FFIType.ptr], returns: FFIType.void },
   mkdir: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
   mkdtemp: { args: [FFIType.ptr], returns: FFIType.ptr },
   open: { args: [FFIType.ptr, FFIType.i32, FFIType.u32], returns: FFIType.i32 },
-  opendir: { args: [FFIType.ptr], returns: FFIType.ptr },
   read: { args: [FFIType.i32, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
   realpath: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr },
   rename: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
@@ -343,6 +342,15 @@ realpathSync.native = realpathSync;
 
 function readdirSync(directory: PathLike): string[] {
   return [...new Bun.Glob("*").scanSync({ cwd: asPath(directory), dot: true, onlyFiles: false })];
+}
+
+// node:fs is the single heaviest module this file could pull in -- around 6ms
+// of startup, paid by every entry point including the Stop hook, which on its
+// default path never stats anything. Load it on first use instead.
+let cachedNodeStatSync: typeof import("node:fs").statSync | null = null;
+function nodeStatSync(file: string) {
+  cachedNodeStatSync ??= (require("node:fs") as typeof import("node:fs")).statSync;
+  return cachedNodeStatSync(file);
 }
 
 function statSync(file: PathLike) {

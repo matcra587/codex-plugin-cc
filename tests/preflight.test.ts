@@ -71,8 +71,8 @@ test("preflight explains how to install bun when it is absent", () => {
 // Exec form spawns the wrapper directly with no shell, so the executable bit
 // is load-bearing rather than cosmetic.
 test("preflight wrapper is executable", async () => {
-  // The platform fs shim's statSync only exposes isDirectory, so read the
-  // mode through Bun.file as the state tests do.
+  // The platform fs shim's statSync does not carry mode, so read it through
+  // Bun.file as the state tests do.
   const mode = (await Bun.file(WRAPPER).stat()).mode;
   assert.equal((mode & 0o111) !== 0, true, "with-bun.sh must be executable");
 });

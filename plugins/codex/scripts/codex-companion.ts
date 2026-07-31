@@ -227,11 +227,11 @@ function requestedHelp(options: AnyParsedOptions): boolean {
   return true;
 }
 
-function resolveCommandCwd(options: AnyParsedOptions = {}): string {
-  return typeof options.cwd === "string" ? path.resolve(process.cwd(), options.cwd) : process.cwd();
+function resolveCommandCwd(options: { cwd?: string | undefined } = {}): string {
+  return options.cwd ? path.resolve(process.cwd(), options.cwd) : process.cwd();
 }
 
-function resolveCommandWorkspace(options: AnyParsedOptions = {}): string {
+function resolveCommandWorkspace(options: { cwd?: string | undefined } = {}): string {
   return resolveWorkspaceRoot(resolveCommandCwd(options));
 }
 
@@ -774,12 +774,13 @@ async function executeTransfer(cwd: string, options: { source?: string | undefin
   };
 }
 
-function readTaskPrompt(cwd: string, options: AnyParsedOptions, positionals: string[]): string {
+// Typed to the one option it reads: widening to AnyParsedOptions loses the
+// `string | undefined` narrowing, which is what pushed the port into a typeof
+// check. Upstream guarded on truthiness, so `--prompt-file=` fell through to
+// the positionals and stdin rather than resolving "" to the cwd.
+function readTaskPrompt(cwd: string, options: { "prompt-file"?: string | undefined }, positionals: string[]): string {
   const promptFile = options["prompt-file"];
-  // Upstream guarded on truthiness, so `--prompt-file=` fell through to the
-  // positionals and stdin. A typeof check took the read path for "", which
-  // resolves to the cwd and fails on reading a directory.
-  if (typeof promptFile === "string" && promptFile !== "") {
+  if (promptFile) {
     return fs.readFileSync(path.resolve(cwd, promptFile), "utf8");
   }
 

@@ -3,9 +3,10 @@
 
 import { test } from "bun:test";
 import { enrichJob } from "../plugins/codex/scripts/lib/job-control.ts";
-import { fs, os, path } from "../plugins/codex/scripts/lib/platform.ts";
+import { fs, path } from "../plugins/codex/scripts/lib/platform.ts";
 import { renderReviewResult, renderStatusReport, renderStoredJobResult } from "../plugins/codex/scripts/lib/render.ts";
 import { assert } from "./assertions.ts";
+import { makeTempDir } from "./helpers.ts";
 
 test("renderReviewResult degrades gracefully when JSON is missing required review fields", () => {
   const output = renderReviewResult(
@@ -122,7 +123,7 @@ test("status table cells collapse a lone carriage return", () => {
 // Upstream matched jest and vitest as verification commands; the port dropped
 // them, so those projects lost the "verifying" phase in /codex:status.
 test("jest and vitest still register as verification commands", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-plugin-phase-"));
+  const dir = makeTempDir("codex-plugin-phase-");
   const cases = [
     ["Running command: npx jest --ci", "verifying"],
     ["Running command: vitest run", "verifying"],

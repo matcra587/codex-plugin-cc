@@ -226,13 +226,10 @@ test("an oversized untracked file is skipped without being read", () => {
   run("git", ["add", "app.js"], { cwd });
   run("git", ["commit", "-m", "init"], { cwd });
 
-  // Comfortably over the 24KB untracked limit, and large enough that reading it
-  // would show up against a small ceiling.
+  // Comfortably over the 24KB untracked limit. The assertion is that the bytes
+  // never reach the payload, so the fixture only has to clear the limit.
   const big = path.join(cwd, "dump.sql");
-  fs.writeFileSync(big, "", "utf8");
-  for (let index = 0; index < 40; index += 1) {
-    fs.appendFileSync(big, "y".repeat(1024 * 1024), "utf8");
-  }
+  fs.writeFileSync(big, "y".repeat(32 * 1024), "utf8");
   const size = fs.statSync(big).size;
   assert.equal(size > 24576, true, "fixture should exceed the untracked limit");
 

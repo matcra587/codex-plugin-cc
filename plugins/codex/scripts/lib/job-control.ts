@@ -124,7 +124,10 @@ function formatElapsedDuration(startValue: string | null | undefined, endValue: 
 }
 
 function looksLikeVerificationCommand(line: string): boolean {
-  return /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|bun test|pytest|jest|vitest|cargo test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i.test(
+  // `bun test`, `cargo test`, `go test`, `mvn test` and `gradle test` need no
+  // alternative of their own -- `\btest\b` already matches the second word.
+  // pytest, jest and vitest do, because "test" is not on a word boundary there.
+  return /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|tsc|eslint|ruff)\b/i.test(
     line
   );
 }
