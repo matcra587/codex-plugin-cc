@@ -20,7 +20,10 @@ const encoder = new TextEncoder();
 class ProtocolError extends Error {
   // Declared, not defined: a class field with no initializer still creates the
   // property with value `undefined`, which makes `"rpcCode" in error` true even
-  // when no code was set. `declare` keeps the type and leaves the object clean.
+  // when no code was set. `declare` keeps the type without creating it, so the
+  // property exists only once something assigns one. `data` is assigned on
+  // every path through createProtocolError, so only `rpcCode` is load-bearing
+  // here; `data` matches it for consistency.
   declare data?: unknown;
   declare rpcCode?: number;
 
