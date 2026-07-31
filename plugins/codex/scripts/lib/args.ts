@@ -26,6 +26,16 @@ export interface ParseArgsConfig<ValueOption extends string = string, BooleanOpt
    * --json`, where options legitimately follow the positional.
    */
   trailingText?: boolean;
+  /**
+   * Set for commands that accept at most one identifier. Option parsing stops
+   * once a second positional appears, because a real invocation never has one.
+   *
+   * These commands are handed whatever the user typed, so pasting prose into
+   * `/codex:result` otherwise let a `--json` or `--cwd` buried in it change the
+   * output format or re-root workspace resolution. One positional still allows
+   * `cancel <job-id> --json`.
+   */
+  singlePositional?: boolean;
 }
 
 export type ParsedOption = string | boolean;
@@ -74,6 +84,11 @@ export function parseArgs<const ValueOption extends string = never, const Boolea
     if (!token.startsWith("-") || token === "-") {
       positionals.push(token);
       if (config.trailingText) {
+        passthrough = true;
+      }
+      // A second positional means this is not a command line: an identifier
+      // command takes one. Everything from here is text, not options.
+      if (config.singlePositional && positionals.length > 1) {
         passthrough = true;
       }
       continue;

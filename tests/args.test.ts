@@ -128,3 +128,40 @@ test("--help inside pasted prose does not trigger help on identifier commands", 
 test("a quoted empty string is not treated as a job reference", () => {
   assert.deepEqual(splitRawArgumentString("'' task-123"), ["task-123"]);
 });
+
+// Identifier commands take at most one job id but are handed whatever the user
+// typed, so a --json or --cwd buried in pasted prose used to change the output
+// format or re-root workspace resolution.
+const RESULT = {
+  valueOptions: ["cwd"],
+  booleanOptions: ["json"],
+  trailingText: false,
+  singlePositional: true
+} as const;
+
+test("an identifier command still takes options around its job id", () => {
+  for (const raw of ["task-abc --json", "--json task-abc"]) {
+    const { options, positionals } = parseRaw(raw, RESULT);
+    assert.equal(options.json, true, raw);
+    assert.equal(positionals[0], "task-abc", raw);
+  }
+  const withValue = parseRaw("task-abc --cwd /tmp", RESULT);
+  assert.equal(withValue.options.cwd, "/tmp");
+});
+
+test("options buried in pasted prose are inert on identifier commands", () => {
+  const pasted = [
+    "Codex Adversarial Review",
+    "",
+    "Verdict: needs-attention",
+    "Re-run with --json for machine output"
+  ].join("\n");
+  const { options, positionals } = parseRaw(pasted, RESULT);
+  assert.equal(options.json, undefined, "a --json in prose must not flip the output format");
+  assert.equal(positionals[0], "Codex", "only the first token is a candidate job reference");
+});
+
+test("a --cwd in pasted prose cannot re-root workspace resolution", () => {
+  const { options } = parseRaw("Verdict needs attention --cwd /etc please check", RESULT);
+  assert.equal(options.cwd, undefined);
+});

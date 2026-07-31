@@ -5,6 +5,25 @@
 
 # Changelog
 
+## 2.1.1
+
+### Fixed
+
+- Options buried in pasted text no longer take effect on `status`, `result`,
+  `cancel` and `transfer`. Those commands are handed whatever the user typed, so
+  pasting a previous review into `/codex:result` let a `--json` in the prose flip
+  the output format, and a `--cwd` re-root workspace resolution into a directory
+  with no state, reporting no job found. They take at most one identifier, so
+  option parsing now stops once a second positional appears. `cancel <job-id>
+  --json` is unaffected.
+- The stop-time review gate no longer hijacks `/codex:rescue --resume`. The gate
+  dispatches through `task`, so its run was a task by class with a task thread
+  name, and being the most recent one it satisfied both the job lookup and the
+  Codex thread search. After any gate run, resuming picked up the gate's review
+  of your previous turn instead of your last rescue. Its job is now marked as
+  the gate's own and its thread is named as a review, so neither path selects
+  it.
+
 ## 2.1.0
 
 ### Added

@@ -2616,3 +2616,61 @@ test("the built-in review rejects --effort instead of ignoring it", () => {
   assert.notEqual(result.status, 0, "asking for an unsupported effort should fail");
   assert.match(result.stderr, /not supported by the built-in review/);
 });
+
+// The stop gate dispatches through `task`, so its run is a task by class. It
+// used to satisfy findLatestResumableTaskJob, so after any gate run
+// `/codex:rescue --resume` resumed the gate's review rather than the user's
+// last rescue.
+test("the stop-gate review is not offered as a resume candidate", () => {
+  const workspace = makeTempDir();
+  const stateDir = resolveStateDir(workspace);
+  fs.mkdirSync(path.join(stateDir, "jobs"), { recursive: true });
+
+  fs.writeFileSync(
+    path.join(stateDir, "state.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        config: { stopReviewGate: false },
+        jobs: [
+          {
+            id: "task-stop-gate",
+            status: "completed",
+            title: "Codex Stop Gate Review",
+            jobClass: "task",
+            stopGate: true,
+            sessionId: "sess-current",
+            threadId: "thr_gate",
+            summary: "Stop-gate review of previous Claude turn",
+            updatedAt: "2026-03-24T21:00:00.000Z"
+          },
+          {
+            id: "task-user",
+            status: "completed",
+            title: "Codex Task",
+            jobClass: "task",
+            sessionId: "sess-current",
+            threadId: "thr_user",
+            summary: "Investigate the flaky test",
+            updatedAt: "2026-03-24T20:00:00.000Z"
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  const result = run("bun", [SCRIPT, "task-resume-candidate", "--json"], {
+    cwd: workspace,
+    env: { ...process.env, CODEX_COMPANION_SESSION_ID: "sess-current" }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.available, true);
+  // The gate run is newer, so without the exclusion it would win.
+  assert.equal(payload.candidate.id, "task-user");
+  assert.equal(payload.candidate.threadId, "thr_user");
+});

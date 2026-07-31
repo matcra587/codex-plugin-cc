@@ -98,6 +98,7 @@ interface TaskRunRequest extends TaskRequest {
 interface TaskRunMetadata {
   title: string;
   summary: string;
+  stopGate: boolean;
 }
 
 interface CompanionJobInput {
@@ -108,6 +109,7 @@ interface CompanionJobInput {
   jobClass: JobClass;
   summary: string;
   write?: boolean;
+  stopGate?: boolean;
 }
 
 interface ReviewCommandConfig {
@@ -392,6 +394,9 @@ function findLatestResumableTaskJob(jobs: JobRecord[]): (JobRecord & { threadId:
   const job = jobs.find(
     (job): job is JobRecord & { threadId: string } =>
       job.jobClass === "task" &&
+      // The stop gate dispatches through `task`, so its run is a task by class.
+      // Offering it would resume the gate's review instead of the user's work.
+      !job.stopGate &&
       typeof job.threadId === "string" &&
       job.threadId.length > 0 &&
       job.status !== "queued" &&
@@ -600,7 +605,14 @@ async function executeTaskRun(request: TaskRunRequest) {
     sandbox: request.write ? "workspace-write" : "read-only",
     onProgress: request.onProgress,
     persistThread: true,
-    threadName: resumeThreadId ? null : buildPersistentTaskThreadName(request.prompt || DEFAULT_CONTINUE_PROMPT)
+    // The gate's own run is named as a review. findLatestTaskThread selects on
+    // the task prefix, so sharing it would let the gate's thread satisfy
+    // `task --resume-last` even when no local job record points at it.
+    threadName: resumeThreadId
+      ? null
+      : taskMetadata.stopGate
+        ? buildPersistentReviewThreadName("Stop Gate Review", "previous Claude turn")
+        : buildPersistentTaskThreadName(request.prompt || DEFAULT_CONTINUE_PROMPT)
   });
 
   const rawOutput = typeof result.finalMessage === "string" ? result.finalMessage : "";
@@ -659,7 +671,8 @@ function buildTaskRunMetadata({
   if (!resumeLast && String(prompt ?? "").includes(STOP_REVIEW_TASK_MARKER)) {
     return {
       title: "Codex Stop Gate Review",
-      summary: "Stop-gate review of previous Claude turn"
+      summary: "Stop-gate review of previous Claude turn",
+      stopGate: true
     };
   }
 
@@ -667,7 +680,8 @@ function buildTaskRunMetadata({
   const fallbackSummary = resumeLast ? DEFAULT_CONTINUE_PROMPT : "Task";
   return {
     title,
-    summary: shorten(prompt || fallbackSummary)
+    summary: shorten(prompt || fallbackSummary),
+    stopGate: false
   };
 }
 
@@ -689,7 +703,8 @@ function createCompanionJob({
   workspaceRoot,
   jobClass,
   summary,
-  write = false
+  write = false,
+  stopGate = false
 }: CompanionJobInput): CompanionJob {
   return createJobRecord({
     id: generateJobId(prefix),
@@ -699,7 +714,8 @@ function createCompanionJob({
     workspaceRoot,
     jobClass,
     summary,
-    write
+    write,
+    ...(stopGate ? { stopGate: true } : {})
   });
 }
 
@@ -726,7 +742,8 @@ function buildTaskJob(workspaceRoot: string, taskMetadata: TaskRunMetadata, writ
     workspaceRoot,
     jobClass: "task",
     summary: taskMetadata.summary,
-    write
+    write,
+    stopGate: taskMetadata.stopGate
   });
 }
 
@@ -960,7 +977,8 @@ async function handleTask(argv: string[]): Promise<void> {
 async function handleTransfer(argv: string[]): Promise<void> {
   const { options } = parseCommandInput(argv, {
     valueOptions: ["cwd", "source"],
-    booleanOptions: ["json"]
+    booleanOptions: ["json"],
+    singlePositional: true
   });
 
   if (requestedHelp(options)) {
@@ -1021,7 +1039,8 @@ async function handleTaskWorker(argv: string[]): Promise<void> {
 async function handleStatus(argv: string[]): Promise<void> {
   const { options, positionals } = parseCommandInput(argv, {
     valueOptions: ["cwd", "timeout-ms", "poll-interval-ms"],
-    booleanOptions: ["json", "all", "wait"]
+    booleanOptions: ["json", "all", "wait"],
+    singlePositional: true
   });
 
   if (requestedHelp(options)) {
@@ -1052,7 +1071,8 @@ async function handleStatus(argv: string[]): Promise<void> {
 function handleResult(argv: string[]): void {
   const { options, positionals } = parseCommandInput(argv, {
     valueOptions: ["cwd"],
-    booleanOptions: ["json"]
+    booleanOptions: ["json"],
+    singlePositional: true
   });
 
   if (requestedHelp(options)) {
@@ -1074,7 +1094,8 @@ function handleResult(argv: string[]): void {
 function handleTaskResumeCandidate(argv: string[]): void {
   const { options } = parseCommandInput(argv, {
     valueOptions: ["cwd"],
-    booleanOptions: ["json"]
+    booleanOptions: ["json"],
+    singlePositional: true
   });
 
   const workspaceRoot = resolveCommandWorkspace(options);
@@ -1108,7 +1129,8 @@ function handleTaskResumeCandidate(argv: string[]): void {
 async function handleCancel(argv: string[]): Promise<void> {
   const { options, positionals } = parseCommandInput(argv, {
     valueOptions: ["cwd"],
-    booleanOptions: ["json"]
+    booleanOptions: ["json"],
+    singlePositional: true
   });
 
   if (requestedHelp(options)) {

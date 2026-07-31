@@ -49,6 +49,12 @@ export interface JobRecord {
   title?: string;
   workspaceRoot?: string;
   jobClass?: JobClass;
+  /**
+   * The stop-time review gate dispatches through `task`, so its job is a task
+   * by class. This marks it as the gate's own run so it is not offered as a
+   * resume candidate ahead of the user's last rescue.
+   */
+  stopGate?: boolean;
   summary?: string;
   write?: boolean;
   sessionId?: string;
@@ -161,6 +167,7 @@ export function isJobRecord(value: unknown): value is JobRecord {
     isOptionalString(value.workspaceRoot) &&
     isOptionalString(value.summary) &&
     (value.write === undefined || typeof value.write === "boolean") &&
+    (value.stopGate === undefined || typeof value.stopGate === "boolean") &&
     isOptionalString(value.sessionId) &&
     isOptionalNullableString(value.phase) &&
     isOptionalNullableNumber(value.pid) &&
