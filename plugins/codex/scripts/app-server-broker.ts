@@ -14,6 +14,7 @@ interface BrokerSocketData {
   buffer: string;
   decoder: TextDecoder;
   queue: Promise<void>;
+  pendingWrite: Uint8Array | null;
 }
 
 interface ActiveStreamTurn {
@@ -122,9 +123,38 @@ function buildJsonRpcError(code: number, message: string, data?: unknown) {
   return data === undefined ? { code, message } : { code, message, data };
 }
 
+// Node's net.Socket buffers whatever the kernel will not take. Bun's socket
+// does not: write() reports how many bytes it accepted and drops the rest, so a
+// reasoning payload large enough to fill the send buffer used to be delivered
+// as a truncated JSONL line, which the peer rejected as unparsable and tore the
+// connection down mid-turn. Hold the remainder and flush it on drain.
+function flushPendingWrite(socket: Bun.Socket<BrokerSocketData>): void {
+  const pending = socket.data.pendingWrite;
+  if (!pending) {
+    return;
+  }
+  socket.data.pendingWrite = null;
+  writeFramed(socket, pending);
+}
+
+function writeFramed(socket: Bun.Socket<BrokerSocketData>, payload: Uint8Array): void {
+  const queued = socket.data.pendingWrite;
+  if (queued) {
+    const combined = new Uint8Array(queued.length + payload.length);
+    combined.set(queued);
+    combined.set(payload, queued.length);
+    socket.data.pendingWrite = combined;
+    return;
+  }
+  const written = socket.write(payload);
+  if (written < payload.length) {
+    socket.data.pendingWrite = payload.subarray(Math.max(written, 0));
+  }
+}
+
 function send(socket: Bun.Socket<BrokerSocketData>, message: unknown): void {
   try {
-    socket.write(`${JSON.stringify(message)}\n`);
+    writeFramed(socket, new TextEncoder().encode(`${JSON.stringify(message)}\n`));
   } catch {
     // The peer may have closed between routing and delivery.
   }
@@ -423,10 +453,14 @@ async function main(): Promise<void> {
         socket.data = {
           buffer: "",
           decoder: new TextDecoder(),
-          queue: Promise.resolve()
+          queue: Promise.resolve(),
+          pendingWrite: null
         };
         sockets.add(socket);
         markBrokerActivity();
+      },
+      drain(socket) {
+        flushPendingWrite(socket);
       },
       data(socket, chunk) {
         markBrokerActivity();

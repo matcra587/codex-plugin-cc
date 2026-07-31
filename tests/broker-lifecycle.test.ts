@@ -389,3 +389,54 @@ test("teardown completes even when the socket cannot be removed", async () => {
     child.kill();
   }
 });
+
+// Node's net.Socket buffers whatever the kernel will not accept; Bun's socket
+// reports a short write and drops the remainder. A reasoning payload big enough
+// to fill the send buffer therefore reached the client as a truncated JSONL
+// line, which it rejected as unparsable and tore the connection down mid-turn.
+test("a payload larger than the socket send buffer arrives intact", async () => {
+  const { child, endpoint } = spawnBroker("600000", "huge-agent-message");
+  try {
+    assert.equal(await waitForBrokerEndpoint(endpoint, 10_000), true, "the broker should come up");
+    const client = connectLines(endpoint.replace(/^unix:/, ""));
+    const socket = await client.ready;
+
+    let agentMessage: string | null = null;
+    let parseFailure: string | null = null;
+    client.setHandler((line) => {
+      let message: { method?: string; params?: { item?: { type?: string; text?: string } } };
+      try {
+        message = JSON.parse(line);
+      } catch (error) {
+        // The symptom the fix targets: a line that ends mid-object.
+        parseFailure = `${error instanceof Error ? error.message : String(error)} (${line.length} bytes)`;
+        return;
+      }
+      if (message.method === "item/completed" && message.params?.item?.type === "agentMessage") {
+        agentMessage = message.params.item.text ?? "";
+      }
+    });
+
+    socket.write(
+      `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "t", version: "1" } } })}\n`
+    );
+    await Bun.sleep(100);
+    socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "thread/start", params: { cwd: "/tmp" } })}\n`);
+    await Bun.sleep(100);
+    socket.write(
+      `${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "turn/start", params: { threadId: "thr_1", input: [{ type: "text", text: "go" }] } })}\n`
+    );
+
+    const delivered = await waitFor(() => agentMessage !== null || parseFailure !== null, 15_000);
+    socket.end();
+    assert.equal(parseFailure, null, `the broker sent an unparsable line: ${parseFailure}`);
+    assert.equal(delivered, true, "the oversized agent message never arrived");
+    const text: string = agentMessage ?? "";
+    assert.equal(text.startsWith("HUGE_START "), true, "the message should start with its marker");
+    assert.equal(text.endsWith(" HUGE_END"), true, `the message was truncated at ${text.length} bytes`);
+  } finally {
+    child.kill();
+  }
+  // Above the runner's 5s default: without the fix the tail never arrives, and
+  // a bare runner timeout hides which assertion would have failed.
+}, 20_000);

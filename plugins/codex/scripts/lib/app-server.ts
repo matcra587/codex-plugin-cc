@@ -316,6 +316,7 @@ class SpawnedCodexAppServerClient extends AppServerClientBase {
 class BrokerCodexAppServerClient extends AppServerClientBase {
   readonly endpoint: string;
   socket: Bun.Socket<AppServerClientBase> | null = null;
+  pendingWrite: Uint8Array | null = null;
 
   constructor(cwd: string, options: CodexAppServerClientOptions & { brokerEndpoint: string }) {
     super(cwd, options);
@@ -337,6 +338,9 @@ class BrokerCodexAppServerClient extends AppServerClientBase {
           },
           data(_socket, chunk) {
             client.handleChunk(decoder.decode(chunk, { stream: true }));
+          },
+          drain() {
+            client.flushPendingWrite();
           },
           error(_socket, error) {
             if (!client.exitResolved) {
@@ -374,13 +378,39 @@ class BrokerCodexAppServerClient extends AppServerClientBase {
     await this.exitPromise;
   }
 
-  override sendMessage(message: unknown) {
-    const line = `${JSON.stringify(message)}\n`;
+  // Bun's socket write() accepts what the send buffer has room for and drops
+  // the rest, unlike Node's net.Socket, which buffers. A dropped tail arrives
+  // as a truncated JSONL line and kills the connection, so hold the remainder
+  // and flush it on drain.
+  flushPendingWrite(): void {
+    const pending = this.pendingWrite;
+    if (!pending) {
+      return;
+    }
+    this.pendingWrite = null;
+    this.writeFramed(pending);
+  }
+
+  writeFramed(payload: Uint8Array): void {
     const socket = this.socket;
     if (!socket) {
       throw new Error("codex app-server broker connection is not connected.");
     }
-    socket.write(line);
+    if (this.pendingWrite) {
+      const combined = new Uint8Array(this.pendingWrite.length + payload.length);
+      combined.set(this.pendingWrite);
+      combined.set(payload, this.pendingWrite.length);
+      this.pendingWrite = combined;
+      return;
+    }
+    const written = socket.write(payload);
+    if (written < payload.length) {
+      this.pendingWrite = payload.subarray(Math.max(written, 0));
+    }
+  }
+
+  override sendMessage(message: unknown) {
+    this.writeFramed(new TextEncoder().encode(`${JSON.stringify(message)}\n`));
   }
 }
 

@@ -491,7 +491,9 @@ rl.on("line", (line) => {
           break;
         }
 
-        const payload = message.params.outputSchema && message.params.outputSchema.properties && message.params.outputSchema.properties.verdict
+        const payload = BEHAVIOR === "huge-agent-message"
+          ? "HUGE_START " + "z".repeat(1024 * 1024) + " HUGE_END"
+          : message.params.outputSchema && message.params.outputSchema.properties && message.params.outputSchema.properties.verdict
           ? structuredReviewPayload(prompt)
           : taskPayload(prompt, thread.name && thread.name.startsWith("Codex Companion Task") && prompt.includes("Continue from the current thread state"));
 
