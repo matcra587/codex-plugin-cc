@@ -5,6 +5,46 @@
 
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Oversized messages survive the broker socket. Node's `net.Socket` buffers
+  whatever the kernel will not take, so any size of message could be written and
+  relied on to arrive. Bun's socket returns the byte count it accepted and drops
+  the rest, and that return value was ignored, so a payload large enough to fill
+  the send buffer reached the client as a truncated JSONL line. The client
+  rejected it as unparsable and tore the connection down, failing the whole turn
+  with `Failed to parse codex app-server JSONL` rather than the real cause. Long
+  reasoning-heavy turns were the ones that hit it. The unwritten tail is now
+  held per socket and flushed on drain.
+- The broker no longer forwards `"code": null` for an app-server error carrying
+  no rpcCode. `rpcCode?: number` is a class field, so the property exists on
+  every `ProtocolError` and an `in` check is always true; `Number(undefined)` is
+  NaN, which serialises as null. That is an invalid JSON-RPC message, so the
+  client tore the connection down and every pending request failed with a parse
+  error instead of the real cause.
+- Directory tests use `stat` rather than `opendir`. `opendir` needs the read
+  bit, while traversing a directory only needs execute, so a directory whose
+  owner had execute but not read read as absent: recursive mkdir failed on an
+  ancestor it should have walked through, and an unreadable untracked directory
+  was reported as an unreadable file.
+- An oversized untracked file is skipped on its size rather than after being
+  read in full. A working tree holding a large build artifact or dump paid that
+  read on every review.
+- The stop-time review gate reports the failure detail again. `Bun.spawnSync`
+  returns Buffers and an empty Buffer is truthy, so `stderr || stdout` selected
+  an empty stderr and discarded what was on stdout.
+- `--prompt-file=` falls through to the positionals and stdin again instead of
+  resolving `""` to the working directory and failing on reading a directory.
+
+### Changed
+
+- `node:fs` is loaded on first use. It was the only `node:` import in the
+  plugin, so nothing amortised it, and it is reached from every entry point --
+  including the Stop hook, whose default path never stats anything. Around 6ms
+  of startup per process.
+
 ## 2.1.1
 
 ### Fixed
