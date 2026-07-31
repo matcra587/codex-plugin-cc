@@ -118,3 +118,7 @@ vite.config.ts.timestamp-*
 
 output/
 plugins/codex/.generated/
+
+# Local agent tooling: symlinks into .agents/, which is not tracked
+.claude/
+.agents/
